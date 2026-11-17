@@ -63,7 +63,10 @@ jobs:
         with:
           workspaces: ./src-tauri -> target
 
-      - run: npm ci
+      # `npm install` rather than `npm ci`: newer npm releases on the runners
+      # expect platform-specific optional packages that a lock file written on
+      # one Mac may not list, and `npm ci` refuses to run when they are missing.
+      - run: npm install --no-audit --no-fund
 
       - uses: tauri-apps/tauri-action@v0
         env:
