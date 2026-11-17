@@ -895,6 +895,36 @@ main {
   border-color: rgba(245, 184, 61, 0.45);
 }
 
+.row-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 560;
+  color: #ffd27a;
+  animation: rise 0.18s ease-out;
+}
+
+.row-note.preview {
+  color: #a9c4ff;
+}
+
+.row-note svg {
+  flex: none;
+}
+
+.chip.workaround.drm {
+  color: #ffd27a;
+  border-color: rgba(245, 184, 61, 0.45);
+  background: rgba(245, 184, 61, 0.1);
+}
+
+.chip.workaround.preview {
+  color: #a9c4ff;
+  border-color: rgba(85, 132, 255, 0.45);
+  background: rgba(59, 110, 246, 0.1);
+}
+
 .row-error {
   display: flex;
   align-items: flex-start;

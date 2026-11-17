@@ -78,6 +78,10 @@ pub struct Job {
     /// Who and what the track is, as the original page described it. Kept so
     /// a track fetched from elsewhere is still tagged as the track asked for.
     pub identity: Option<TrackMeta>,
+    /// Why the track came from elsewhere: "drm" or "preview". Shown as a badge.
+    pub workaround: Option<String>,
+    /// A short line about what is happening right now, shown under the progress bar.
+    pub note: Option<String>,
     pub created: u64,
     pub finished: Option<u64>,
 }
@@ -153,6 +157,25 @@ fn kill_tree(pid: u32) {
             .args(["/PID", &pid.to_string(), "/T", "/F"])
             .creation_flags(0x0800_0000)
             .output();
+    }
+}
+
+/// What the user sees while a track is fetched from elsewhere, stage by stage.
+fn workaround_note(reason: &str, stage: u8) -> &'static str {
+    let note = workaround_note_text(reason, stage);
+    #[cfg(debug_assertions)]
+    eprintln!("[note] {note}");
+    note
+}
+
+fn workaround_note_text(reason: &str, stage: u8) -> &'static str {
+    match (reason, stage) {
+        ("drm", 0) => "DRM protection detected",
+        ("drm", 1) => "Finding an unprotected copy…",
+        ("drm", _) => "Downloading an unprotected copy",
+        (_, 0) => "Only a preview is available here",
+        (_, 1) => "Finding the full track…",
+        (_, _) => "Downloading the full track",
     }
 }
 
@@ -406,7 +429,11 @@ fn friendly_error(line: &str) -> String {
         "This item needs a signed-in browser. Pick one under Settings → Downloads → Use cookies from.".into()
     } else if lower.contains("private video") || lower.contains("video unavailable") || lower.contains("404") {
         format!("Not available: {msg}")
-    } else if lower.contains("unable to download") && lower.contains("webpage") || lower.contains("getaddrinfo") {
+    } else if lower.contains("unable to download") && lower.contains("webpage")
+        || ["getaddrinfo", "no route to host", "failed to establish a new connection", "network is unreachable", "connection refused"]
+            .iter()
+            .any(|sign| lower.contains(sign))
+    {
         "Could not reach the site. Check your connection and retry.".into()
     } else if lower.contains("timed out") || lower.contains("connection reset") || lower.contains("temporary failure") {
         "The site did not respond in time. Check your connection and retry.".into()
@@ -979,6 +1006,7 @@ impl Manager {
             Err(Outcome::Stopped(Stop::Pause)) => {
                 self.mutate(&job.id, |j| {
                     j.status = Status::Paused;
+                    j.note = None;
                     j.speed = None;
                     j.eta = None;
                 });
@@ -986,6 +1014,7 @@ impl Manager {
             Err(Outcome::Stopped(Stop::Cancel)) => {
                 self.mutate(&job.id, |j| {
                     j.status = Status::Canceled;
+                    j.note = None;
                     j.speed = None;
                     j.eta = None;
                 });
@@ -998,6 +1027,7 @@ impl Manager {
                 if is_transient(&msg) && attempts < 3 {
                     self.mutate(&job.id, |j| {
                         j.status = Status::Queued;
+                        j.note = None;
                         j.progress = 0.0;
                         j.speed = None;
                         j.eta = None;
@@ -1007,6 +1037,7 @@ impl Manager {
                 } else {
                     self.mutate(&job.id, |j| {
                         j.status = Status::Failed;
+                        j.note = None;
                         j.error = Some(msg);
                         j.speed = None;
                         j.eta = None;
@@ -1220,6 +1251,7 @@ impl Manager {
     async fn look_elsewhere(
         &self,
         job: &Job,
+        reason: &'static str,
         settings: &Settings,
         stop: &mut watch::Receiver<Option<Stop>>,
     ) -> Result<Option<elsewhere::Found>, Outcome> {
@@ -1231,7 +1263,13 @@ impl Manager {
             j.total = None;
             j.speed = None;
             j.eta = None;
+            j.workaround = Some(reason.to_string());
+            j.note = Some(workaround_note(reason, 0).into());
         });
+        // Long enough to read before the next stage replaces it.
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        Self::stopped(stop)?;
+        self.mutate(id, |j| j.note = Some(workaround_note(reason, 1).into()));
         let info = fetch_info(&self.dirs.bin, &job.source).await;
         Self::stopped(stop)?;
         let Ok(info) = info else { return Ok(None) };
@@ -1247,6 +1285,7 @@ impl Manager {
             self.mutate(id, |j| {
                 j.resolved = Some(f.url.clone());
                 j.identity = Some(f.identity.clone());
+                j.note = Some(workaround_note(reason, 2).into());
             });
         }
         Ok(found)
@@ -1271,6 +1310,11 @@ impl Manager {
         let mut url = job.resolved.clone().unwrap_or_else(|| job.source.clone());
         let mut identity = job.identity.clone();
         let mut can_look_elsewhere = job.site == "soundcloud" && job.resolved.is_none();
+        // Resuming a track that was already being fetched from elsewhere.
+        if let (Some(_), Some(reason)) = (&job.resolved, job.workaround.as_deref()) {
+            let note = workaround_note(if reason == "drm" { "drm" } else { "preview" }, 2);
+            self.mutate(id, |j| j.note = Some(note.into()));
+        }
         let mut spare: Vec<String> = Vec::new();
         let (info, file) = loop {
             let result = self
@@ -1280,7 +1324,8 @@ impl Manager {
             let preview = matches!(&result, Ok((info, _)) if is_preview(info));
             if can_look_elsewhere && (drm || preview) {
                 can_look_elsewhere = false;
-                match self.look_elsewhere(job, &settings, stop).await? {
+                let reason = if drm { "drm" } else { "preview" };
+                match self.look_elsewhere(job, reason, &settings, stop).await? {
                     Some(found) => {
                         if let Ok((_, clip)) = &result {
                             let _ = tokio::fs::remove_file(clip).await;
@@ -1294,7 +1339,10 @@ impl Manager {
                         return Err(fail("This track is DRM-protected on SoundCloud, and no exact copy of it could be found on YouTube."));
                     }
                     // Nothing better found: keep the preview, which is flagged below.
-                    None => break result?,
+                    None => {
+                        self.mutate(id, |j| j.workaround = None);
+                        break result?;
+                    }
                 }
             }
             // YouTube occasionally refuses one particular upload; another exact copy will do.
@@ -1388,6 +1436,7 @@ impl Manager {
                 .map(|e| format!("Saved, but tags were not written: {e}"))
                 .or_else(|| preview_only.then(|| "Preview only: the site offers just a short clip of this track without a paid account.".to_string()));
             j.status = Status::Done;
+            j.note = None;
             j.progress = 1.0;
             j.finished = Some(now_ms());
         });
@@ -1518,6 +1567,7 @@ mod tests {
         assert_eq!(normalize_url("not a link"), None);
         assert!(is_transient(&friendly_error("ERROR: [soundcloud] Unable to download JSON metadata: Read timed out. (read timeout=20.0)")));
         assert!(!is_transient(&friendly_error("ERROR: [soundcloud] 1: This video is DRM protected")));
+        assert!(is_transient(&friendly_error("ERROR: [youtube] M7amWll73Qg: Unable to download API page: HTTPSConnection(host='www.youtube.com', port=443): Failed to establish a new connection: [Errno 65] No route to host")));
         assert!(!is_transient(&friendly_error("ERROR: unable to download video data: HTTP Error 403: Forbidden")));
         assert_eq!(title_from_url("https://soundcloud.com/artist/world-on-fire-1"), "world on fire 1");
         assert_eq!(title_from_url("https://www.youtube.com/watch?v=abc"), "https://www.youtube.com/watch?v=abc");

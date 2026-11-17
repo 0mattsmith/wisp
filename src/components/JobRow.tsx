@@ -10,6 +10,8 @@ import {
   Pencil,
   Play,
   RotateCcw,
+  ShieldAlert,
+  ShieldCheck,
   Sparkles,
   X,
 } from "lucide-react";
@@ -24,7 +26,7 @@ function stateLabel(job: Job): string {
     case "queued":
       return "Queued";
     case "fetching":
-      return job.kind === "playlist" ? "Reading…" : "Starting…";
+      return job.kind === "playlist" ? "Reading…" : job.note ? "Searching" : "Starting…";
     case "downloading":
       return `${Math.round((job.progress / 0.9) * 100)}%`;
     case "converting":
@@ -138,6 +140,12 @@ export function JobRow({
           </div>
         )}
 
+        {job.note && (active || waiting) && (
+          <div className={`row-note ${job.workaround ?? "drm"}`}>
+            <ShieldAlert size={12} /> {job.note}
+          </div>
+        )}
+
         {job.error && job.status !== "done" ? (
           <div className="row-error">
             <CircleAlert size={13} /> {job.error}
@@ -171,6 +179,18 @@ export function JobRow({
                 <Gauge size={11} /> {speed(job.speed)}
               </span>
             ) : null}
+            {job.status === "done" && job.workaround && (
+              <span
+                className={`chip workaround ${job.workaround}`}
+                title={
+                  job.workaround === "drm"
+                    ? "This track is DRM-protected on SoundCloud, so the same recording was downloaded from an unprotected source."
+                    : "SoundCloud only offers a preview of this track, so the full recording was downloaded from another source."
+                }
+              >
+                <ShieldCheck size={11} /> {job.workaround === "drm" ? "Unprotected copy" : "Full track"}
+              </span>
+            )}
             {job.status === "done" && job.matched && (
               <span className="chip matched" title={`Tags matched with ${Math.round((job.matchScore ?? 0) * 100)}% confidence`}>
                 <Sparkles size={11} /> {job.matched}

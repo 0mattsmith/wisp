@@ -34,6 +34,10 @@ export interface Job {
   matchScore: number | null;
   cleared: boolean;
   attempts: number;
+  /** Why the track came from elsewhere: "drm" or "preview". */
+  workaround: "drm" | "preview" | null;
+  /** What is happening right now, shown under the progress bar. */
+  note: string | null;
   created: number;
   finished: number | null;
 }
