@@ -1,6 +1,7 @@
 //! The work queue: downloading with yt-dlp, converting with ffmpeg, tagging,
 //! and keeping the list of jobs (which doubles as the library) on disk.
 
+use crate::elsewhere;
 use crate::meta::{self, TrackMeta};
 use crate::settings::Settings;
 use crate::{tags, tools};
@@ -71,6 +72,12 @@ pub struct Job {
     pub cleared: bool,
     /// How many times this job has been started since it was last queued by hand.
     pub attempts: u8,
+    /// When the original page cannot provide the track (DRM, preview-only),
+    /// the matching upload found elsewhere that is downloaded instead.
+    pub resolved: Option<String>,
+    /// Who and what the track is, as the original page described it. Kept so
+    /// a track fetched from elsewhere is still tagged as the track asked for.
+    pub identity: Option<TrackMeta>,
     pub created: u64,
     pub finished: Option<u64>,
 }
@@ -147,6 +154,11 @@ fn kill_tree(pid: u32) {
             .creation_flags(0x0800_0000)
             .output();
     }
+}
+
+/// SoundCloud serves only a 30-second clip of subscriber-only tracks.
+fn is_preview(info: &Value) -> bool {
+    info.get("format_id").and_then(|f| f.as_str()).is_some_and(|f| f.contains("preview"))
 }
 
 /// Failures worth one more automatic go: the network or the site hiccuped.
@@ -409,24 +421,15 @@ pub async fn search_tracks(bin_dir: &Path, query: &str, site: &str) -> Result<Ve
     if query.is_empty() {
         return Ok(vec![]);
     }
-    let (ytdlp, _) = tools::find("yt-dlp", bin_dir)
-        .ok_or("yt-dlp is not installed. Open Settings → Tools to install it.")?;
     let prefix = if site == "soundcloud" { "scsearch" } else { "ytsearch" };
-    let mut cmd = tools::command(&ytdlp);
-    cmd.args(["--flat-playlist", "-J", "--no-warnings", "--no-update", "--encoding", "utf-8"])
-        // The prefix also keeps a query that starts with "-" from being read as an option.
-        .arg(format!("{prefix}10:{query}"))
-        .env("PYTHONIOENCODING", "utf-8");
-    let out = tokio::time::timeout(Duration::from_secs(45), cmd.output())
-        .await
-        .map_err(|_| "The search timed out. Check your connection and try again.")?
-        .map_err(|e| format!("Could not start yt-dlp: {e}"))?;
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
-        let line = err.lines().rev().find(|l| l.contains("ERROR")).unwrap_or("The search failed.");
-        return Err(friendly_error(line));
-    }
-    let json: Value = serde_json::from_slice(&out.stdout).map_err(|_| "Unexpected search data")?;
+    // The prefix also keeps a query that starts with "-" from being read as an option.
+    search_spec(bin_dir, &format!("{prefix}10:{query}")).await
+}
+
+/// List what yt-dlp finds for a search ("ytsearch10:…") or a search page URL,
+/// without downloading anything.
+pub async fn search_spec(bin_dir: &Path, spec: &str) -> Result<Vec<SearchHit>, String> {
+    let json = ytdlp_json(bin_dir, &["--flat-playlist", "--playlist-end", "12"], spec).await?;
     let text = |v: &Value, k: &str| v.get(k).and_then(|x| x.as_str()).filter(|x| !x.is_empty()).map(|x| x.to_string());
     Ok(json
         .get("entries")
@@ -457,6 +460,34 @@ pub async fn search_tracks(bin_dir: &Path, query: &str, site: &str) -> Result<Ve
             })
         })
         .collect())
+}
+
+/// Everything yt-dlp knows about one page, even when it cannot be downloaded
+/// (DRM, region locks): the title, artist and length are still readable.
+pub async fn fetch_info(bin_dir: &Path, url: &str) -> Result<Value, String> {
+    ytdlp_json(bin_dir, &["--no-playlist", "--ignore-no-formats-error", "--skip-download"], url).await
+}
+
+async fn ytdlp_json(bin_dir: &Path, args: &[&str], target: &str) -> Result<Value, String> {
+    let (ytdlp, _) = tools::find("yt-dlp", bin_dir)
+        .ok_or("yt-dlp is not installed. Open Settings → Tools to install it.")?;
+    let mut cmd = tools::command(&ytdlp);
+    cmd.args(["-J", "--no-warnings", "--no-update", "--encoding", "utf-8"]).args(args);
+    if let Some(rt) = tools::js_runtime(bin_dir) {
+        cmd.args(["--js-runtimes", &rt]);
+    }
+    // "--" ends the options, so a target can never be read as one.
+    cmd.arg("--").arg(target).env("PYTHONIOENCODING", "utf-8");
+    let out = tokio::time::timeout(Duration::from_secs(45), cmd.output())
+        .await
+        .map_err(|_| "The search timed out. Check your connection and try again.")?
+        .map_err(|e| format!("Could not start yt-dlp: {e}"))?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        let line = err.lines().rev().find(|l| l.contains("ERROR")).unwrap_or("The search failed.");
+        return Err(friendly_error(line));
+    }
+    serde_json::from_slice(&out.stdout).map_err(|_| "Unexpected data from yt-dlp".to_string())
 }
 
 // ------------------------------------------------------------------ manager
@@ -1053,21 +1084,23 @@ impl Manager {
         }
     }
 
-    async fn run_download(&self, job: &Job, stop: &mut watch::Receiver<Option<Stop>>) -> Result<(), Outcome> {
-        let settings = self.settings();
+    /// Download one page's audio into `work` and convert it, without tagging.
+    #[allow(clippy::too_many_arguments)]
+    async fn fetch_audio(
+        &self,
+        job: &Job,
+        url: &str,
+        identity: Option<&TrackMeta>,
+        work: &Path,
+        ytdlp: &Path,
+        ffmpeg: &Path,
+        settings: &Settings,
+        ogg: Ogg,
+        stop: &mut watch::Receiver<Option<Stop>>,
+    ) -> Result<(Value, PathBuf), Outcome> {
         let id = job.id.as_str();
-        let missing = |tool: &str| fail(format!("{tool} is not installed. Open Settings → Tools to install it."));
-        let (ytdlp, _) = tools::find("yt-dlp", &self.dirs.bin).ok_or_else(|| missing("yt-dlp"))?;
-        let (ffmpeg, _) = tools::find("ffmpeg", &self.dirs.bin).ok_or_else(|| missing("ffmpeg"))?;
-        let work = self.dirs.work.join(id);
-        tokio::fs::create_dir_all(&work).await.map_err(|e| fail(format!("Cannot create a working folder: {e}")))?;
-
-        let ogg = if job.format == "ogg" { ogg_mode(&ffmpeg).await } else { Ogg::Vorbis };
-        if ogg == Ogg::Unavailable {
-            return Err(fail(NO_OGG));
-        }
         let fmt = yt_format(&job.format, &job.quality, ogg);
-        let mut cmd = tools::command(&ytdlp);
+        let mut cmd = tools::command(ytdlp);
         cmd.args([
             "--no-playlist", "--newline", "--progress", "--color", "never", "--no-simulate",
             "--no-update", "--no-mtime", "--encoding", "utf-8",
@@ -1081,7 +1114,7 @@ impl Manager {
             "--concurrent-fragments", "4", "--retries", "5", "--fragment-retries", "5", "--socket-timeout", "20",
             "-o", "%(id)s.%(ext)s",
         ]);
-        cmd.arg("-P").arg(&work).arg("--ffmpeg-location").arg(&ffmpeg);
+        cmd.arg("-P").arg(work).arg("--ffmpeg-location").arg(ffmpeg);
         if let Some(q) = &fmt.quality {
             cmd.args(["--audio-quality", q]);
         }
@@ -1094,7 +1127,7 @@ impl Manager {
         if let Some(rt) = tools::js_runtime(&self.dirs.bin) {
             cmd.args(["--js-runtimes", &rt]);
         }
-        cmd.arg(&job.source).env("PYTHONIOENCODING", "utf-8");
+        cmd.arg("--").arg(url).env("PYTHONIOENCODING", "utf-8");
 
         let mut info: Option<Value> = None;
         let mut file: Option<PathBuf> = None;
@@ -1106,7 +1139,11 @@ impl Manager {
             .run_process(id, cmd, stop, |line, _| {
                 if let Some(json) = line.strip_prefix("META|") {
                     if let Ok(v) = serde_json::from_str::<Value>(json) {
-                        let guess = meta::guess_from_source(&v);
+                        // A track fetched from elsewhere keeps the name it was asked for by.
+                        let guess = match identity {
+                            Some(known) => meta::guess_from_source(&v).overlaid_with(known),
+                            None => meta::guess_from_source(&v),
+                        };
                         self.mutate(id, |j| {
                             j.title = guess.title.clone().unwrap_or_else(|| j.title.clone());
                             j.artist = guess.artist.clone().or(j.artist.take());
@@ -1164,10 +1201,9 @@ impl Manager {
         }
         // What yt-dlp names the file it produces, and what it is saved as.
         let produced = if ogg == Ogg::Opus && job.format == "ogg" { "opus" } else { job.format.as_str() };
-        let ext = job.format.as_str();
         let file = match file.filter(|f| f.is_file()) {
             Some(f) => f,
-            None => std::fs::read_dir(&work)
+            None => std::fs::read_dir(work)
                 .ok()
                 .and_then(|d| {
                     d.filter_map(|e| e.ok())
@@ -1176,6 +1212,101 @@ impl Manager {
                 })
                 .ok_or_else(|| fail("The download finished but produced no audio file."))?,
         };
+        Ok((info.unwrap_or(Value::Null), file))
+    }
+
+    /// Identify the track the job's page describes and find the same recording
+    /// on YouTube. Records what it found on the job, so a retry goes straight there.
+    async fn look_elsewhere(
+        &self,
+        job: &Job,
+        settings: &Settings,
+        stop: &mut watch::Receiver<Option<Stop>>,
+    ) -> Result<Option<elsewhere::Found>, Outcome> {
+        let id = job.id.as_str();
+        self.mutate(id, |j| {
+            j.status = Status::Fetching;
+            j.progress = 0.0;
+            j.downloaded = 0;
+            j.total = None;
+            j.speed = None;
+            j.eta = None;
+        });
+        let info = fetch_info(&self.dirs.bin, &job.source).await;
+        Self::stopped(stop)?;
+        let Ok(info) = info else { return Ok(None) };
+        let found = elsewhere::find_on_youtube(&self.dirs.bin, &self.http, settings, &info).await;
+        Self::stopped(stop)?;
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "[{id}] looked elsewhere for {:?}: {}",
+            meta::guess_from_source(&info).title,
+            found.as_ref().map(|f| format!("{} (score {:.2})", f.url, f.score)).unwrap_or_else(|| "no exact match".into())
+        );
+        if let Some(f) = &found {
+            self.mutate(id, |j| {
+                j.resolved = Some(f.url.clone());
+                j.identity = Some(f.identity.clone());
+            });
+        }
+        Ok(found)
+    }
+
+    async fn run_download(&self, job: &Job, stop: &mut watch::Receiver<Option<Stop>>) -> Result<(), Outcome> {
+        let settings = self.settings();
+        let id = job.id.as_str();
+        let missing = |tool: &str| fail(format!("{tool} is not installed. Open Settings → Tools to install it."));
+        let (ytdlp, _) = tools::find("yt-dlp", &self.dirs.bin).ok_or_else(|| missing("yt-dlp"))?;
+        let (ffmpeg, _) = tools::find("ffmpeg", &self.dirs.bin).ok_or_else(|| missing("ffmpeg"))?;
+        let work = self.dirs.work.join(id);
+        tokio::fs::create_dir_all(&work).await.map_err(|e| fail(format!("Cannot create a working folder: {e}")))?;
+
+        let ogg = if job.format == "ogg" { ogg_mode(&ffmpeg).await } else { Ogg::Vorbis };
+        if ogg == Ogg::Unavailable {
+            return Err(fail(NO_OGG));
+        }
+        // Normally the page the user gave. A SoundCloud track that is DRM-protected,
+        // or only offers a 30-second preview, is fetched from the same recording on
+        // YouTube instead, found by `elsewhere`.
+        let mut url = job.resolved.clone().unwrap_or_else(|| job.source.clone());
+        let mut identity = job.identity.clone();
+        let mut can_look_elsewhere = job.site == "soundcloud" && job.resolved.is_none();
+        let mut spare: Vec<String> = Vec::new();
+        let (info, file) = loop {
+            let result = self
+                .fetch_audio(job, &url, identity.as_ref(), &work, &ytdlp, &ffmpeg, &settings, ogg, stop)
+                .await;
+            let drm = matches!(&result, Err(Outcome::Failed(msg)) if msg.contains("DRM"));
+            let preview = matches!(&result, Ok((info, _)) if is_preview(info));
+            if can_look_elsewhere && (drm || preview) {
+                can_look_elsewhere = false;
+                match self.look_elsewhere(job, &settings, stop).await? {
+                    Some(found) => {
+                        if let Ok((_, clip)) = &result {
+                            let _ = tokio::fs::remove_file(clip).await;
+                        }
+                        url = found.url;
+                        spare = found.others;
+                        identity = Some(found.identity);
+                        continue;
+                    }
+                    None if drm => {
+                        return Err(fail("This track is DRM-protected on SoundCloud, and no exact copy of it could be found on YouTube."));
+                    }
+                    // Nothing better found: keep the preview, which is flagged below.
+                    None => break result?,
+                }
+            }
+            // YouTube occasionally refuses one particular upload; another exact copy will do.
+            if matches!(&result, Err(Outcome::Failed(_))) && !spare.is_empty() {
+                url = spare.remove(0);
+                let next = url.clone();
+                self.mutate(id, move |j| j.resolved = Some(next));
+                continue;
+            }
+            break result?;
+        };
+        let ext = job.format.as_str();
 
         // ---- metadata
         self.mutate(id, |j| {
@@ -1184,11 +1315,12 @@ impl Manager {
             j.speed = None;
             j.eta = None;
         });
-        let info = info.unwrap_or(Value::Null);
-        let base = meta::guess_from_source(&info);
+        let base = match &identity {
+            Some(known) => meta::guess_from_source(&info).overlaid_with(known),
+            None => meta::guess_from_source(&info),
+        };
         let duration = info.get("duration").and_then(|d| d.as_f64());
-        // SoundCloud serves only a 30-second clip of subscriber-only tracks.
-        let preview_only = info.get("format_id").and_then(|f| f.as_str()).is_some_and(|f| f.contains("preview"));
+        let preview_only = is_preview(&info);
         let mut final_meta = base.clone();
         let mut matched: Option<(String, f32)> = None;
         let mut match_cover: Option<String> = None;

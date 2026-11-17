@@ -115,7 +115,14 @@ pub fn guess_from_source(info: &Value) -> TrackMeta {
 
     if title.is_none() || artist.is_none() {
         let cleaned = clean_title(&raw_title);
-        let near_channel = |text: &str| channel.as_deref().map(|c| similarity(c, text)).unwrap_or(0.0);
+        // Compared letter for letter: "Skream" (a remixer's channel) must not look like
+        // "Tune (Skream Remix)" just because one name appears inside the other.
+        let near_channel = |text: &str| {
+            channel
+                .as_deref()
+                .map(|c| strsim::normalized_levenshtein(&normalize(c), &normalize(text)) as f32)
+                .unwrap_or(0.0)
+        };
         let split = [" - ", " – ", " — ", " ~ "]
             .iter()
             .find_map(|sep| cleaned.split_once(sep))
@@ -170,10 +177,10 @@ pub fn guess_from_source(info: &Value) -> TrackMeta {
 
 // ----------------------------------------------------------------- scoring
 
-fn normalize(text: &str) -> String {
+pub(crate) fn normalize(text: &str) -> String {
     static FEAT: OnceLock<Regex> = OnceLock::new();
     let feat = FEAT.get_or_init(|| {
-        Regex::new(r"(?i)[\(\[][^\)\]]*\b(feat|ft|featuring|with|remaster(ed)?|version|edit|mono|stereo|deluxe|bonus)\b[^\)\]]*[\)\]]|\b(feat|ft|featuring)\b\.?.*$").unwrap()
+        Regex::new(r"(?i)[\(\[][^\)\]]*\b(feat|ft|featuring|with|re-?master(ed)?|version|edit|mono|stereo|deluxe|bonus)\b[^\)\]]*[\)\]]|\b(feat|ft|featuring)\b\.?.*$").unwrap()
     });
     let stripped = feat.replace_all(text, " ");
     let mut out = String::with_capacity(stripped.len());
@@ -207,7 +214,7 @@ pub fn similarity(a: &str, b: &str) -> f32 {
     lev.max(jaccard).max(contained)
 }
 
-fn first_artist(a: &str) -> &str {
+pub(crate) fn first_artist(a: &str) -> &str {
     a.split([',', '&', ';'])
         .next()
         .unwrap_or(a)
