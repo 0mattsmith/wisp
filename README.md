@@ -59,7 +59,7 @@ Releases are signed with the key in `~/.tauri/dubplate-updater.key`, stored in t
 
 Notes per platform:
 
-- **macOS**: updates work without an Apple Developer account, but an unsigned app shows a Gatekeeper warning on first launch. Add the `APPLE_*` secrets to sign and notarise.
+- **macOS**: updates work without an Apple Developer account, but an unsigned app shows a Gatekeeper warning on first launch. To sign and notarise, add the `APPLE_*` repository secrets and uncomment the matching lines in `.github/workflows/release.yml`.
 - **Windows**: the installer runs in passive mode after the click, then the app reopens.
 - **Linux**: in-app updates apply to the AppImage. `.deb` and `.rpm` installs update through the package.
 
