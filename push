@@ -93,7 +93,11 @@ else
 fi
 
 if [ -n "$tag" ]; then
-  git tag -a "$tag" -m "$message"
+  # The tag message becomes the release notes, so leave out commit trailers
+  # such as "Co-Authored-By: ..." that only belong in the commit.
+  notes=$(printf '%s\n' "$message" | grep -vE '^[A-Za-z-]+: .+<[^>]+>$' || true)
+  notes=$(printf '%s' "$notes" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}')
+  git tag -a "$tag" -m "${notes:-$message}"
 fi
 
 git push --quiet -u origin "$branch"
