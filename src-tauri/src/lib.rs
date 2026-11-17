@@ -414,6 +414,19 @@ pub fn run() {
                 // Muted, so a test run does not blare out of the speakers.
                 request_play(&handle, ids, 0, true);
             }
+            // Development aid: close the main window a few seconds after launch,
+            // exactly as the red button would, to check what the app does next.
+            #[cfg(debug_assertions)]
+            if std::env::var_os("DUBPLATE_DEV_CLOSE").is_some() {
+                let app = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+                    if let Some(win) = app.get_webview_window("main") {
+                        eprintln!("[dev] closing the main window");
+                        let _ = win.close();
+                    }
+                });
+            }
             if !std::env::args().any(|a| a == "--hidden") {
                 tray::show_main(&handle);
             }
