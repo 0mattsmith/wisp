@@ -1,6 +1,6 @@
 [package]
 name = "dubplate"
-version = "0.1.5"
+version = "0.1.6"
 description = "Download, convert and tag music from YouTube and SoundCloud"
 edition = "2021"
 rust-version = "1.80"
