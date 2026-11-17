@@ -1,3 +1,4 @@
+mod cookies;
 mod elsewhere;
 mod jobs;
 mod links;
@@ -332,6 +333,21 @@ fn dev_log(window: tauri::Window, message: String) {
     let _ = (window, message);
 }
 
+/// Work out where a browser the user picked keeps its profile.
+#[tauri::command]
+async fn detect_browser(path: String) -> Result<cookies::CustomBrowser, String> {
+    tokio::task::spawn_blocking(move || cookies::detect(std::path::Path::new(&path)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Unlock the chosen browser's cookies as a download would, and report what was found.
+#[tauri::command]
+async fn check_cookies(mgr: Mgr<'_>) -> Result<String, String> {
+    let mgr = mgr.inner().clone();
+    cookies::check(&mgr.settings(), &mgr.dirs.bin, &mgr.dirs.work).await
+}
+
 /// The bookmark code for the "Send to Dubplate" browser button.
 #[tauri::command]
 fn bookmarklet() -> String {
@@ -539,6 +555,8 @@ pub fn run() {
             dev_log,
             bookmarklet,
             add_share_shortcut,
+            detect_browser,
+            check_cookies,
             quit_app,
         ])
         .build(tauri::generate_context!())

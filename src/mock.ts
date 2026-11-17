@@ -69,7 +69,8 @@ const settings: Settings = {
   useDiscogs: true,
   discogsToken: "",
   sponsorblock: false,
-  cookiesBrowser: "",
+  cookiesBrowser: "helium",
+  cookiesCustom: null,
   notify: true,
   keepInTray: true,
   hideDockIcon: false,
@@ -148,6 +149,8 @@ export function mockCall(cmd: string, args: Record<string, unknown> = {}): unkno
     }
     case "bookmarklet":
       return "javascript:(()=>{location.href='dubplate://add?url='+encodeURIComponent(location.href)})()";
+    case "check_cookies":
+      return "Helium has no YouTube cookies yet (open youtube.com in it and sign in); has SoundCloud cookies.";
     case "player_pending":
       return null;
     case "ytdlp_latest":

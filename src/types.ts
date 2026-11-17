@@ -59,11 +59,20 @@ export interface Settings {
   discogsToken: string;
   sponsorblock: boolean;
   cookiesBrowser: string;
+  cookiesCustom: CustomBrowser | null;
   notify: boolean;
   keepInTray: boolean;
   hideDockIcon: boolean;
   autoUpdate: boolean;
   clipboardWatch: boolean;
+}
+
+/** A browser yt-dlp does not know by name, picked under "Custom…". */
+export interface CustomBrowser {
+  label: string;
+  kind: "chromium" | "firefox";
+  profile: string;
+  keychain: string | null;
 }
 
 export interface TrackMeta {

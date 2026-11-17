@@ -25,8 +25,11 @@ pub struct Settings {
     pub use_discogs: bool,
     pub discogs_token: String,
     pub sponsorblock: bool,
-    /// Browser to borrow cookies from for age/region restricted items ("" = off)
+    /// Browser to borrow cookies from for age/region restricted items: "" for
+    /// off, a browser yt-dlp knows ("chrome"…), "helium", or "custom".
     pub cookies_browser: String,
+    /// The browser picked under "Custom…".
+    pub cookies_custom: Option<crate::cookies::CustomBrowser>,
     pub notify: bool,
     pub keep_in_tray: bool,
     pub hide_dock_icon: bool,
@@ -53,6 +56,7 @@ impl Default for Settings {
             discogs_token: String::new(),
             sponsorblock: false,
             cookies_browser: String::new(),
+            cookies_custom: None,
             notify: true,
             keep_in_tray: !cfg!(target_os = "linux"),
             hide_dock_icon: false,
@@ -83,6 +87,10 @@ impl Settings {
             self.quality = "best".into();
         }
         self.max_concurrent = self.max_concurrent.clamp(1, 8);
+        let cookies = self.cookies_browser.as_str();
+        if !(cookies.is_empty() || cookies == "helium" || cookies == "custom" || crate::cookies::BUILT_IN.contains(&cookies)) {
+            self.cookies_browser.clear();
+        }
         self.match_threshold = self.match_threshold.clamp(0.5, 0.98);
         if self.filename_template.trim().is_empty() {
             self.filename_template = "{artist} - {title}".into();

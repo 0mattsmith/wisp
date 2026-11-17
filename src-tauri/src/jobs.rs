@@ -1,6 +1,7 @@
 //! The work queue: downloading with yt-dlp, converting with ffmpeg, tagging,
 //! and keeping the list of jobs (which doubles as the library) on disk.
 
+use crate::cookies;
 use crate::elsewhere;
 use crate::meta::{self, TrackMeta};
 use crate::settings::Settings;
@@ -710,9 +711,12 @@ impl Manager {
             let settings = self.settings();
             let mut cmd = tools::command(&ytdlp);
             cmd.args(["--flat-playlist", "-J", "--no-warnings", "--no-update", "--encoding", "utf-8"]);
-            if !settings.cookies_browser.is_empty() {
-                cmd.args(["--cookies-from-browser", &settings.cookies_browser]);
-            }
+            let cookie_args = {
+                let (s, scratch) = (settings.clone(), self.dirs.work.clone());
+                let _ = std::fs::create_dir_all(&scratch);
+                tokio::task::spawn_blocking(move || cookies::prepare(&s, &scratch)).await.map_err(|e| e.to_string())??
+            };
+            cmd.args(&cookie_args.args);
             cmd.arg(&placeholder.source).env("PYTHONIOENCODING", "utf-8");
             let out = tokio::time::timeout(Duration::from_secs(180), cmd.output())
                 .await
@@ -1152,9 +1156,15 @@ impl Manager {
         if settings.sponsorblock {
             cmd.args(["--sponsorblock-remove", "music_offtopic"]);
         }
-        if !settings.cookies_browser.is_empty() {
-            cmd.args(["--cookies-from-browser", &settings.cookies_browser]);
-        }
+        // Kept until yt-dlp is done: a cookie file Dubplate wrote is deleted with it.
+        let cookie_args = {
+            let (s, scratch) = (settings.clone(), work.to_path_buf());
+            tokio::task::spawn_blocking(move || cookies::prepare(&s, &scratch))
+                .await
+                .map_err(|e| fail(e.to_string()))?
+                .map_err(fail)?
+        };
+        cmd.args(&cookie_args.args);
         if let Some(rt) = tools::js_runtime(&self.dirs.bin) {
             cmd.args(["--js-runtimes", &rt]);
         }

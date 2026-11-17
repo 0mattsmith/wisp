@@ -78,6 +78,21 @@ export async function pickFiles(kind: "audio" | "image"): Promise<string[]> {
   return Array.isArray(picked) ? picked : [picked];
 }
 
+/** Pick a browser: the app itself, or (folder = true) its profile folder. */
+export async function pickBrowser(folder: boolean): Promise<string | null> {
+  if (!inTauri) return null;
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const picked = await open(
+    folder
+      ? { directory: true }
+      : {
+          defaultPath: isMac ? "/Applications" : undefined,
+          filters: isMac ? [{ name: "Apps", extensions: ["app"] }] : [{ name: "Programs", extensions: ["exe", "AppImage", "desktop"] }],
+        },
+  );
+  return typeof picked === "string" ? picked : null;
+}
+
 /** Subscribe to files dropped on the window. `over` reports hover state. */
 export async function onFileDrop(
   onDrop: (paths: string[]) => void,

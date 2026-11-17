@@ -1,10 +1,10 @@
-import { Check, Copy, Download, FolderOpen, LoaderCircle, RefreshCw, Share } from "lucide-react";
+import { AppWindow, Check, Copy, Download, FolderOpen, LoaderCircle, RefreshCw, Share, ShieldCheck } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import { call, copyText, isMac, loginStartEnabled, on, openExternal, pickFolder, setLoginStart } from "../api";
+import { call, copyText, isMac, loginStartEnabled, on, openExternal, pickBrowser, pickFolder, setLoginStart } from "../api";
 import { FormatPicker } from "../components/FormatPicker";
 import { bytes } from "../format";
 import { saveSettings, toast, useSettings } from "../store";
-import type { Settings as SettingsT, ToolProgress, ToolStatus } from "../types";
+import type { CustomBrowser, Settings as SettingsT, ToolProgress, ToolStatus } from "../types";
 import { appVersion, applyUpdate, checkForUpdate, useUpdate } from "../updater";
 
 const NAMING = [
@@ -37,6 +37,113 @@ function LoginStart() {
         }}
       />
     </Row>
+  );
+}
+
+const COOKIE_BROWSERS: [string, string][] = [
+  ["chrome", "Chrome"],
+  ["safari", "Safari"],
+  ["firefox", "Firefox"],
+  ["edge", "Edge"],
+  ["brave", "Brave"],
+  ["opera", "Opera"],
+  ["vivaldi", "Vivaldi"],
+  ["chromium", "Chromium"],
+  ["helium", "Helium"],
+];
+
+function Cookies({ settings: s }: { settings: SettingsT }) {
+  const [checking, setChecking] = useState(false);
+  const [report, setReport] = useState<{ ok: boolean; text: string } | null>(null);
+  const [picking, setPicking] = useState(false);
+  useEffect(() => setReport(null), [s.cookiesBrowser, s.cookiesCustom?.profile]);
+
+  const choose = async (folder: boolean) => {
+    const path = await pickBrowser(folder);
+    if (!path) return;
+    setPicking(true);
+    try {
+      const browser = await call<CustomBrowser>("detect_browser", { path });
+      await saveSettings({ cookiesBrowser: "custom", cookiesCustom: browser });
+    } catch (e) {
+      toast(String(e), "error");
+    } finally {
+      setPicking(false);
+    }
+  };
+
+  const check = async () => {
+    setChecking(true);
+    setReport(null);
+    try {
+      const text = await call<string>("check_cookies");
+      setReport({ ok: !text.includes("no YouTube") && !text.includes("not signed in"), text });
+    } catch (e) {
+      setReport({ ok: false, text: String(e) });
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const custom = s.cookiesCustom;
+  return (
+    <>
+      <Row title="Use cookies from" hint="For age-restricted or members-only items you can already play in that browser.">
+        <select
+          className="select"
+          value={s.cookiesBrowser}
+          onChange={(e) => {
+            const value = e.target.value;
+            // Choosing Custom with nothing picked yet goes straight to picking a browser.
+            if (value === "custom" && !custom) choose(false);
+            else saveSettings({ cookiesBrowser: value });
+          }}
+        >
+          <option value="">Off</option>
+          {COOKIE_BROWSERS.map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+          <option value="custom">{custom ? `Custom: ${custom.label}` : "Custom…"}</option>
+        </select>
+      </Row>
+      {s.cookiesBrowser === "custom" && (
+        <Row
+          title={custom ? custom.label : "Custom browser"}
+          hint={
+            custom
+              ? `${custom.kind === "firefox" ? "Firefox-based" : "Chromium-based"} · ${custom.profile}`
+              : "Pick the browser app. If its profile cannot be found, choose its profile folder instead."
+          }
+        >
+          <button className="soft-btn" disabled={picking} onClick={() => choose(false)}>
+            {picking ? <LoaderCircle className="spin" size={14} /> : <AppWindow size={14} />} Choose browser
+          </button>
+          <button className="soft-btn" disabled={picking} onClick={() => choose(true)} title="Choose the browser's profile folder">
+            <FolderOpen size={14} /> Folder
+          </button>
+        </Row>
+      )}
+      {s.cookiesBrowser !== "" && (
+        <Row
+          title="Check sign-in"
+          hint={
+            report ? (
+              <em className={report.ok ? "ok-text" : "warn-text"}>{report.text}</em>
+            ) : isMac && (s.cookiesBrowser === "helium" || custom?.kind === "chromium") && s.cookiesBrowser !== "firefox" ? (
+              "macOS will ask once to let Dubplate use the browser’s keychain entry. Click Always Allow."
+            ) : (
+              "Makes sure Dubplate can see that you are signed in. Nothing is sent anywhere."
+            )
+          }
+        >
+          <button className="soft-btn" disabled={checking} onClick={check}>
+            {checking ? <LoaderCircle className="spin" size={14} /> : <ShieldCheck size={14} />} Check
+          </button>
+        </Row>
+      )}
+    </>
   );
 }
 
@@ -315,16 +422,7 @@ export function Settings() {
         <Row title="Trim non-music sections" hint="Cuts intros, outros and talking from YouTube music videos, using SponsorBlock.">
           <Toggle label="Trim non-music sections" value={s.sponsorblock} onChange={(sponsorblock) => saveSettings({ sponsorblock })} />
         </Row>
-        <Row title="Use cookies from" hint="For age-restricted or members-only items you can already play in that browser.">
-          <select className="select" value={s.cookiesBrowser} onChange={(e) => saveSettings({ cookiesBrowser: e.target.value })}>
-            <option value="">Off</option>
-            {["chrome", "firefox", "safari", "edge", "brave", "opera", "vivaldi"].map((b) => (
-              <option key={b} value={b}>
-                {b[0].toUpperCase() + b.slice(1)}
-              </option>
-            ))}
-          </select>
-        </Row>
+        <Cookies settings={s} />
       </section>
 
       <section className="card">

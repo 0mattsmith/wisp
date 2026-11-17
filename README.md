@@ -14,6 +14,7 @@ Download, convert and tag music from YouTube and SoundCloud. One desktop app for
 - **Tag** automatically from iTunes, Deezer, MusicBrainz (with Cover Art Archive) and Discogs, including cover art. Every file can be re-tagged by hand in the editor.
 - **Convert and tag files you already have** by dropping them on the window.
 - **Send from your browser** with a "Send to Dubplate" bookmark button, or (macOS) from the Share menu via a Shortcut. Both open a `dubplate://add?url=…` link, which only accepts YouTube and SoundCloud pages.
+- **Signed-in downloads** for age-restricted or members-only items, using cookies from Chrome, Safari, Firefox, Edge, Brave, Opera, Vivaldi, Chromium, Helium, or any other browser picked under "Custom…". On macOS, Chromium-family browsers that yt-dlp cannot read (Helium, Arc, Thorium…) are unlocked through their own keychain entry, and only YouTube, Google and SoundCloud cookies are passed on, in a private file deleted after each download.
 - **Play** anything in the Library in a pop-out mini player that floats above other windows.
 - **Menu bar / tray** quick panel, optional start at login (straight into the menu bar), and background updates.
 
