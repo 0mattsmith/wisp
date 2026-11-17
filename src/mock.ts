@@ -141,6 +141,8 @@ export function mockCall(cmd: string, args: Record<string, unknown> = {}): unkno
         thumbnail: art(a, b),
       }));
     }
+    case "bookmarklet":
+      return "javascript:(()=>{location.href='dubplate://add?url='+encodeURIComponent(location.href)})()";
     case "player_pending":
       return null;
     case "ytdlp_latest":

@@ -131,3 +131,12 @@ export function devLog(message: string) {
   devBuild ??= invoke<boolean>("dev_enabled").catch(() => false);
   devBuild.then((dev) => dev && invoke("dev_log", { message }).catch(() => {}));
 }
+
+export async function copyText(text: string): Promise<void> {
+  if (inTauri) {
+    const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
+    await writeText(text);
+  } else {
+    await navigator.clipboard.writeText(text);
+  }
+}

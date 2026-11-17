@@ -157,10 +157,15 @@ fn is_transient(message: &str) -> bool {
 // ------------------------------------------------------------ URL handling
 
 pub fn site_of(url: &str) -> &'static str {
-    let host = url.split("://").nth(1).unwrap_or(url).split('/').next().unwrap_or("").to_lowercase();
-    if host.ends_with("youtube.com") || host.ends_with("youtu.be") || host.ends_with("youtube-nocookie.com") {
+    let host = tauri::Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.trim_end_matches('.').to_lowercase()))
+        .unwrap_or_default();
+    // The domain itself or one of its subdomains, so "notyoutube.com" does not count.
+    let on = |domain: &str| host == domain || host.ends_with(&format!(".{domain}"));
+    if on("youtube.com") || on("youtu.be") || on("youtube-nocookie.com") {
         "youtube"
-    } else if host.ends_with("soundcloud.com") {
+    } else if on("soundcloud.com") {
         "soundcloud"
     } else {
         "web"
@@ -1371,6 +1376,11 @@ mod tests {
         assert!(is_collection("https://soundcloud.com/artist/tracks"));
         assert_eq!(site_of("https://music.youtube.com/watch?v=x"), "youtube");
         assert_eq!(site_of("https://on.soundcloud.com/abc"), "soundcloud");
+        assert_eq!(site_of("https://youtu.be/abc"), "youtube");
+        assert_eq!(site_of("https://notyoutube.com/watch?v=x"), "web");
+        assert_eq!(site_of("https://youtube.com.evil.example/x"), "web");
+        assert_eq!(site_of("https://evil.example/?u=youtube.com"), "web");
+        assert_eq!(site_of("https://youtube.com@evil.example/x"), "web");
         assert_eq!(normalize_url("youtu.be/abc").as_deref(), Some("https://youtu.be/abc"));
         assert_eq!(normalize_url("https://www.youtube.com/@someone").as_deref(), Some("https://www.youtube.com/@someone/videos"));
         assert_eq!(normalize_url("not a link"), None);

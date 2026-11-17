@@ -12,6 +12,7 @@ Download, convert and tag music from YouTube and SoundCloud. One desktop app for
 - **Convert** to MP3, FLAC, WAV, M4A, AAC or OGG with ffmpeg. Where the source already holds the target codec (for example M4A from YouTube) the audio is copied rather than re-encoded.
 - **Tag** automatically from iTunes, Deezer, MusicBrainz (with Cover Art Archive) and Discogs, including cover art. Every file can be re-tagged by hand in the editor.
 - **Convert and tag files you already have** by dropping them on the window.
+- **Send from your browser** with a "Send to Dubplate" bookmark button, or (macOS) from the Share menu via a Shortcut. Both open a `dubplate://add?url=…` link, which only accepts YouTube and SoundCloud pages.
 - **Play** anything in the Library in a pop-out mini player that floats above other windows.
 - **Menu bar / tray** quick panel, optional start at login (straight into the menu bar), and background updates.
 

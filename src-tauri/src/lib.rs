@@ -1,4 +1,5 @@
 mod jobs;
+mod links;
 mod meta;
 mod settings;
 mod tags;
@@ -330,6 +331,29 @@ fn dev_log(window: tauri::Window, message: String) {
     let _ = (window, message);
 }
 
+/// The bookmark code for the "Send to Dubplate" browser button.
+#[tauri::command]
+fn bookmarklet() -> String {
+    links::bookmarklet()
+}
+
+/// Put "Send to Dubplate" in the macOS Share menu.
+#[tauri::command]
+async fn add_share_shortcut(app: AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let dir = app.path().app_cache_dir().map_err(|e| e.to_string())?;
+        tokio::task::spawn_blocking(move || links::add_share_shortcut(&dir))
+            .await
+            .map_err(|e| e.to_string())?
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Err("The Share menu Shortcut is only available on macOS.".into())
+    }
+}
+
 #[tauri::command]
 fn quit_app(app: AppHandle) {
     app.exit(0);
@@ -345,7 +369,14 @@ pub fn run() {
         // brings the first one forward.
         let scratch_run = cfg!(debug_assertions) && std::env::var_os("DUBPLATE_DEV_DIR").is_some();
         if !scratch_run {
-            builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| tray::show_main(app)));
+            builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+                // A dubplate:// link opened while the app runs (Windows and Linux start a
+                // second copy to deliver it) is handled by the deep-link plugin; anything
+                // else, such as opening the app again, brings the window forward.
+                if !args.iter().any(|a| a.starts_with(&format!("{}:", links::SCHEME))) {
+                    tray::show_main(app);
+                }
+            }));
         }
         builder = builder
             .plugin(tauri_plugin_updater::Builder::new().build())
@@ -356,6 +387,7 @@ pub fn run() {
             ));
     }
     builder
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
@@ -400,6 +432,27 @@ pub fn run() {
             app.manage(mgr);
             app.manage(PlayRequest::default());
             tray::setup(&handle)?;
+
+            // dubplate:// links from the browser button or the Share menu.
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                // Installers register the link type; this covers an AppImage that was
+                // never installed, and development builds on Windows.
+                #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
+                let _ = handle.deep_link().register_all();
+                let app = handle.clone();
+                handle.deep_link().on_open_url(move |event| links::handle(&app, event.urls()));
+                // A link that launched the app (Windows, Linux) arrives here instead.
+                if let Ok(Some(urls)) = handle.deep_link().get_current() {
+                    links::handle(&handle, urls);
+                }
+            }
+            #[cfg(debug_assertions)]
+            if let Ok(link) = std::env::var("DUBPLATE_DEV_LINK") {
+                if let Ok(url) = tauri::Url::parse(&link) {
+                    links::handle(&handle, vec![url]);
+                }
+            }
             // Development aid: start the first library track playing, silently, so
             // playback can be checked from a terminal.
             #[cfg(debug_assertions)]
@@ -483,6 +536,8 @@ pub fn run() {
             player_show,
             player_hide,
             dev_log,
+            bookmarklet,
+            add_share_shortcut,
             quit_app,
         ])
         .build(tauri::generate_context!())

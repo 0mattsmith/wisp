@@ -1,6 +1,6 @@
-import { Check, Download, FolderOpen, LoaderCircle, RefreshCw } from "lucide-react";
+import { Check, Copy, Download, FolderOpen, LoaderCircle, RefreshCw, Share } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import { call, isMac, loginStartEnabled, on, openExternal, pickFolder, setLoginStart } from "../api";
+import { call, copyText, isMac, loginStartEnabled, on, openExternal, pickFolder, setLoginStart } from "../api";
 import { FormatPicker } from "../components/FormatPicker";
 import { bytes } from "../format";
 import { saveSettings, toast, useSettings } from "../store";
@@ -37,6 +37,64 @@ function LoginStart() {
         }}
       />
     </Row>
+  );
+}
+
+function SendFromBrowser() {
+  const [copied, setCopied] = useState(false);
+  const [adding, setAdding] = useState(false);
+  return (
+    <>
+      <Row
+        title="Send to Dubplate button"
+        hint="A button for your browser's bookmarks bar that sends the YouTube or SoundCloud page you are on straight to your downloads."
+      >
+        <button
+          className="soft-btn"
+          onClick={async () => {
+            try {
+              await copyText(await call<string>("bookmarklet"));
+              setCopied(true);
+              setTimeout(() => setCopied(false), 2500);
+            } catch (e) {
+              toast(String(e), "error");
+            }
+          }}
+        >
+          {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? "Copied" : "Copy button"}
+        </button>
+      </Row>
+      <ol className="set-steps">
+        <li>Click Copy button.</li>
+        <li>
+          In your browser, show the bookmarks bar ({isMac ? "Safari: View → Show Favourites Bar" : "Ctrl+Shift+B"}) and bookmark any page
+          into it.
+        </li>
+        <li>Edit that bookmark: name it “Send to Dubplate” and paste the copied code in place of its address.</li>
+        <li>On a YouTube or SoundCloud page, click it. The first time, the browser asks whether to open Dubplate.</li>
+      </ol>
+      {isMac && (
+        <Row title="Share menu" hint="Adds “Send to Dubplate” to the Share menu in Safari and other apps, using a Shortcut. The Shortcuts app asks you to confirm.">
+          <button
+            className="soft-btn"
+            disabled={adding}
+            onClick={async () => {
+              setAdding(true);
+              try {
+                await call("add_share_shortcut");
+                toast("Click “Add Shortcut” in the Shortcuts window");
+              } catch (e) {
+                toast(String(e), "error");
+              } finally {
+                setAdding(false);
+              }
+            }}
+          >
+            {adding ? <LoaderCircle className="spin" size={14} /> : <Share size={14} />} Add to Share menu
+          </button>
+        </Row>
+      )}
+    </>
   );
 }
 
@@ -345,6 +403,11 @@ export function Settings() {
         <Row title="Spot copied links" hint="Offers to download a YouTube or SoundCloud link you have just copied.">
           <Toggle label="Spot copied links" value={s.clipboardWatch} onChange={(clipboardWatch) => saveSettings({ clipboardWatch })} />
         </Row>
+      </section>
+
+      <section className="card">
+        <h3>Send from your browser</h3>
+        <SendFromBrowser />
       </section>
 
       <section className="card">
