@@ -287,49 +287,103 @@ function Tools() {
     }
   };
 
+  const remove = async (name: string) => {
+    setBusy(name);
+    try {
+      await call("remove_tool", { name });
+      toast(`Removed Wisp’s copy of ${name}`);
+    } catch (e) {
+      toast(String(e), "error");
+    } finally {
+      setBusy(null);
+      refresh();
+    }
+  };
+
+  /** Where a copy came from, in words. */
+  const origin = (path: string, managed: boolean) =>
+    managed
+      ? "Wisp’s own copy"
+      : path.startsWith("/opt/local/")
+        ? `MacPorts (${path})`
+        : path.startsWith("/opt/homebrew/") || path.startsWith("/usr/local/Cellar")
+          ? `Homebrew (${path})`
+          : path;
+
   if (!tools) return <p className="muted">Checking…</p>;
   return (
     <>
       {tools.map((t) => {
         const outdated = t.name === "yt-dlp" && t.found && latest && t.version && t.version < latest;
+        const broken = t.found && !t.version;
         const working = busy === t.name;
+        // Wisp's own copy, when it is not the one in use (because it will not run, or is older).
+        const sparedOwn = t.others.find((o) => o.managed);
         return (
-          <Row
-            key={t.name}
-            title={t.name}
-            hint={
-              t.found ? (
-                <>
-                  {t.version ?? "Unknown version"} · {t.managed ? "managed by Wisp" : t.path}
-                  {outdated && <em className="warn-text"> · {latest} is available</em>}
-                </>
+          <div key={t.name}>
+            <Row
+              title={t.name}
+              hint={
+                t.found ? (
+                  <>
+                    {broken ? <em className="warn-text">Won’t run: {t.error ?? "no version reported"}</em> : t.version}
+                    {" · "}
+                    {t.path ? origin(t.path, t.managed) : ""}
+                    {outdated && <em className="warn-text"> · {latest} is available</em>}
+                  </>
+                ) : (
+                  <em className="warn-text">Not installed. Downloads cannot run without it.</em>
+                )
+              }
+            >
+              {working ? (
+                <span className="muted inline">
+                  <LoaderCircle className="spin" size={14} />
+                  {progress?.name === t.name && progress.total ? `${bytes(progress.downloaded)} of ${bytes(progress.total)}` : "Working…"}
+                </span>
               ) : (
-                <em className="warn-text">Not installed. Downloads cannot run without it.</em>
-              )
-            }
-          >
-            {working ? (
-              <span className="muted inline">
-                <LoaderCircle className="spin" size={14} />
-                {progress?.name === t.name && progress.total
-                  ? `${bytes(progress.downloaded)} of ${bytes(progress.total)}`
-                  : "Working…"}
-              </span>
-            ) : !t.found || outdated ? (
-              <button className="soft-btn accent" disabled={!t.installable || busy !== null} onClick={() => install(t.name)}>
-                <Download size={14} /> {t.found ? "Update" : "Install"}
-              </button>
-            ) : (
-              <span className="ok-text">
-                <Check size={14} /> Ready
-              </span>
+                <>
+                  {t.managed && (broken || t.others.some((o) => o.version)) && (
+                    <button className="soft-btn" disabled={busy !== null} onClick={() => remove(t.name)} title="Delete Wisp’s copy and use the system’s instead">
+                      Remove Wisp’s copy
+                    </button>
+                  )}
+                  {!t.found || outdated || broken ? (
+                    <button className="soft-btn accent" disabled={!t.installable || busy !== null} onClick={() => install(t.name)}>
+                      <Download size={14} /> {t.found ? (broken ? "Reinstall" : "Update") : "Install"}
+                    </button>
+                  ) : (
+                    <span className="ok-text">
+                      <Check size={14} /> Ready
+                    </span>
+                  )}
+                </>
+              )}
+            </Row>
+            {t.others.length > 0 && (
+              <ul className="tool-others">
+                {t.others.map((o) => (
+                  <li key={o.path}>
+                    Also found: {origin(o.path, o.managed)} ·{" "}
+                    {o.version ? `${o.version}${t.name === "yt-dlp" ? " (not used)" : ""}` : <em className="warn-text">won’t run: {o.error}</em>}
+                    {o.managed && o === sparedOwn && !o.version && (
+                      <>
+                        {" "}
+                        <button className="link-btn" disabled={busy !== null} onClick={() => remove(t.name)}>
+                          Remove it
+                        </button>
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
             )}
-          </Row>
+          </div>
         );
       })}
       <p className="set-note">
-        Sites change often, and an out-of-date yt-dlp is the usual reason a download fails. A copy managed by Wisp is kept current
-        automatically; one installed by Homebrew or another package manager is updated there.
+        Wisp uses the newest copy of yt-dlp that runs, preferring one from Homebrew or MacPorts over its own when they match. Wisp keeps
+        its own copy current automatically; package managers update theirs. ffmpeg and ffprobe are always used as a pair from one folder.
       </p>
     </>
   );

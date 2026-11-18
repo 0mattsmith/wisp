@@ -1155,6 +1155,43 @@ html.vibrant .sidebar {
   color: var(--blue-note);
 }
 
+.row-note.retry {
+  color: var(--muted);
+}
+
+.row-log {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.row-log pre {
+  flex: 1;
+  min-width: 0;
+  max-height: 180px;
+  overflow: auto;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font: 11px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--muted);
+  background: var(--surface-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tool-others {
+  margin: -6px 0 8px;
+  padding: 0 0 0 2px;
+  list-style: none;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+.tool-others li {
+  overflow-wrap: anywhere;
+}
+
 .row-note svg {
   flex: none;
 }

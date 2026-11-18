@@ -499,7 +499,7 @@ pub async fn check(settings: &Settings, bin_dir: &Path, scratch: &Path) -> Resul
         let text = std::fs::read_to_string(&prepared.args[1]).unwrap_or_default();
         return Ok(format!("{name} {}.", summarise(&parse_netscape(&text))));
     }
-    let (ytdlp, _) = crate::tools::find("yt-dlp", bin_dir).ok_or("yt-dlp is not installed.")?;
+    let (ytdlp, _) = crate::tools::resolve("yt-dlp", bin_dir).await.ok_or("yt-dlp is not installed.")?;
     std::fs::create_dir_all(scratch).map_err(|e| e.to_string())?;
     let jar = CookieFile(scratch.join(format!("cookie-check-{}.txt", std::process::id())));
     write_private(&jar.0, "").map_err(|e| e.to_string())?;

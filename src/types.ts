@@ -34,6 +34,9 @@ export interface Job {
   matchScore: number | null;
   cleared: boolean;
   attempts: number;
+  noteKind: "drm" | "preview" | "retry" | null;
+  /** yt-dlp's last output before a failure. */
+  log: string | null;
   /** Why the track came from elsewhere: "drm" or "preview". */
   workaround: "drm" | "preview" | null;
   /** What is happening right now, shown under the progress bar. */
@@ -118,12 +121,23 @@ export interface FileTags {
   size: number;
 }
 
+export interface OtherCopy {
+  path: string;
+  managed: boolean;
+  version: string | null;
+  error: string | null;
+}
+
 export interface ToolStatus {
   name: string;
   found: boolean;
   managed: boolean;
   path: string | null;
   version: string | null;
+  /** Why the copy in use could not report a version. */
+  error: string | null;
+  /** Other copies found on this machine, not in use. */
+  others: OtherCopy[];
   installable: boolean;
 }
 

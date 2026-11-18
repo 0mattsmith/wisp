@@ -83,6 +83,11 @@ pub struct Job {
     pub workaround: Option<String>,
     /// A short line about what is happening right now, shown under the progress bar.
     pub note: Option<String>,
+    /// How to colour `note`: "drm", "preview" or "retry".
+    pub note_kind: Option<String>,
+    /// The last lines yt-dlp or ffmpeg printed before a failure, for the
+    /// Details view, so a problem can be reported exactly.
+    pub log: Option<String>,
     pub created: u64,
     pub finished: Option<u64>,
 }
@@ -178,6 +183,17 @@ fn workaround_note_text(reason: &str, stage: u8) -> &'static str {
         (_, 1) => "Finding the full track…",
         (_, _) => "Downloading the full track",
     }
+}
+
+/// What the user sees while a failed attempt waits to be tried again.
+fn retry_note(message: &str, site: &str, attempt: u8) -> String {
+    let site = match site {
+        "youtube" => "YouTube",
+        "soundcloud" => "SoundCloud",
+        _ => "The site",
+    };
+    let why = if message == REFUSED { format!("{site} refused the download") } else { format!("Couldn’t reach {site}") };
+    format!("{why}, trying again ({} of 3)…", attempt + 1)
 }
 
 /// SoundCloud serves only a 30-second clip of subscriber-only tracks.
@@ -504,7 +520,8 @@ pub async fn fetch_info(bin_dir: &Path, url: &str) -> Result<Value, String> {
 }
 
 async fn ytdlp_json(bin_dir: &Path, args: &[&str], target: &str) -> Result<Value, String> {
-    let (ytdlp, _) = tools::find("yt-dlp", bin_dir)
+    let (ytdlp, _) = tools::resolve("yt-dlp", bin_dir)
+        .await
         .ok_or("yt-dlp is not installed. Open Settings → Tools to install it.")?;
     let mut cmd = tools::command(&ytdlp);
     cmd.args(["-J", "--no-warnings", "--no-update", "--encoding", "utf-8"]).args(args);
@@ -646,7 +663,11 @@ impl Manager {
         let me = self.clone();
         tauri::async_runtime::spawn(async move {
             tokio::time::sleep(Duration::from_secs(6)).await;
-            let Some((path, true)) = tools::find("yt-dlp", &me.dirs.bin) else { return };
+            // Only Wisp's own copy is kept up to date here; package managers update theirs.
+            let path = me.dirs.bin.join(tools::exe("yt-dlp"));
+            if !path.is_file() {
+                return;
+            }
             let (Some(current), Some(latest)) =
                 (tools::version("yt-dlp", &path).await, tools::latest_ytdlp(&me.http).await)
             else {
@@ -713,7 +734,8 @@ impl Manager {
 
     async fn expand_playlist(self: Arc<Self>, placeholder: Job) {
         let result: Result<Vec<Job>, String> = async {
-            let (ytdlp, _) = tools::find("yt-dlp", &self.dirs.bin)
+            let (ytdlp, _) = tools::resolve("yt-dlp", &self.dirs.bin)
+                .await
                 .ok_or("yt-dlp is not installed. Open Settings → Tools to install it.")?;
             let settings = self.settings();
             let mut cmd = tools::command(&ytdlp);
@@ -980,6 +1002,10 @@ impl Manager {
                     Some(j) => {
                         j.status = Status::Fetching;
                         j.error = None;
+                        // A retry's note stays visible while it starts again.
+                        if j.note_kind.as_deref() != Some("retry") {
+                            j.note = None;
+                        }
                         j.attempts = j.attempts.saturating_add(1);
                         j.clone()
                     }
@@ -1040,9 +1066,11 @@ impl Manager {
                 let attempts = self.get(&job.id).map(|j| j.attempts).unwrap_or(u8::MAX);
                 let msg = if msg == REFUSED && attempts >= 3 { self.refused_message().await } else { msg };
                 if is_transient(&msg) && attempts < 3 {
+                    let note = retry_note(&msg, &job.site, attempts);
                     self.mutate(&job.id, |j| {
                         j.status = Status::Queued;
-                        j.note = None;
+                        j.note = Some(note);
+                        j.note_kind = Some("retry".into());
                         j.progress = 0.0;
                         j.speed = None;
                         j.eta = None;
@@ -1055,6 +1083,7 @@ impl Manager {
                     self.mutate(&job.id, |j| {
                         j.status = Status::Failed;
                         j.note = None;
+                        j.note_kind = None;
                         j.error = Some(msg);
                         j.speed = None;
                         j.eta = None;
@@ -1135,7 +1164,7 @@ impl Manager {
     /// What to tell the user once a site has refused a download several times:
     /// only blame yt-dlp when it really is behind the latest release.
     async fn refused_message(&self) -> String {
-        let current = match tools::find("yt-dlp", &self.dirs.bin) {
+        let current = match tools::resolve("yt-dlp", &self.dirs.bin).await {
             Some((path, _)) => tools::version("yt-dlp", &path).await,
             None => None,
         };
@@ -1205,11 +1234,19 @@ impl Manager {
         let mut info: Option<Value> = None;
         let mut file: Option<PathBuf> = None;
         let mut last_error: Option<String> = None;
+        let mut tail: std::collections::VecDeque<String> = std::collections::VecDeque::new();
         let mut last_emit = Instant::now() - Duration::from_secs(1);
         let num = |s: &str| s.trim().parse::<f64>().ok().filter(|n| n.is_finite());
 
         let status = self
-            .run_process(id, cmd, stop, |line, _| {
+            .run_process(id, cmd, stop, |line, is_err| {
+                // Remember what yt-dlp said (not its progress lines), for the Details view.
+                if is_err && !line.trim().is_empty() && !line.starts_with("PP|") {
+                    if tail.len() == 30 {
+                        tail.pop_front();
+                    }
+                    tail.push_back(line.chars().take(400).collect());
+                }
                 if let Some(json) = line.strip_prefix("META|") {
                     if let Ok(v) = serde_json::from_str::<Value>(json) {
                         // A track fetched from elsewhere keeps the name it was asked for by.
@@ -1238,6 +1275,10 @@ impl Manager {
                     let total = num(p[1]).or_else(|| num(p[2])).filter(|t| *t > 0.0);
                     let job = self.update(id, |j| {
                         j.status = Status::Downloading;
+                        if j.note_kind.as_deref() == Some("retry") {
+                            j.note = None;
+                            j.note_kind = None;
+                        }
                         j.downloaded = downloaded as u64;
                         j.total = total.map(|t| t as u64);
                         j.speed = num(p[3]);
@@ -1270,6 +1311,8 @@ impl Manager {
             .await?;
 
         if !status.success() {
+            let log = Vec::from(tail).join("\n");
+            self.mutate(id, |j| j.log = (!log.is_empty()).then_some(log));
             return Err(fail(last_error.unwrap_or_else(|| "The download failed. Updating yt-dlp under Settings → Tools often fixes this.".into())));
         }
         // What yt-dlp names the file it produces, and what it is saved as.
@@ -1307,11 +1350,15 @@ impl Manager {
             j.eta = None;
             j.workaround = Some(reason.to_string());
             j.note = Some(workaround_note(reason, 0).into());
+            j.note_kind = Some(reason.to_string());
         });
         // Long enough to read before the next stage replaces it.
         tokio::time::sleep(Duration::from_millis(1500)).await;
         Self::stopped(stop)?;
-        self.mutate(id, |j| j.note = Some(workaround_note(reason, 1).into()));
+        self.mutate(id, |j| {
+            j.note = Some(workaround_note(reason, 1).into());
+            j.note_kind = Some(reason.to_string());
+        });
         let info = fetch_info(&self.dirs.bin, &job.source).await;
         Self::stopped(stop)?;
         let Ok(info) = info else { return Ok(None) };
@@ -1328,6 +1375,7 @@ impl Manager {
                 j.resolved = Some(f.url.clone());
                 j.identity = Some(f.identity.clone());
                 j.note = Some(workaround_note(reason, 2).into());
+                j.note_kind = Some(reason.to_string());
             });
         }
         Ok(found)
@@ -1337,7 +1385,7 @@ impl Manager {
         let settings = self.settings();
         let id = job.id.as_str();
         let missing = |tool: &str| fail(format!("{tool} is not installed. Open Settings → Tools to install it."));
-        let (ytdlp, _) = tools::find("yt-dlp", &self.dirs.bin).ok_or_else(|| missing("yt-dlp"))?;
+        let (ytdlp, _) = tools::resolve("yt-dlp", &self.dirs.bin).await.ok_or_else(|| missing("yt-dlp"))?;
         let (ffmpeg, _) = tools::find("ffmpeg", &self.dirs.bin).ok_or_else(|| missing("ffmpeg"))?;
         let work = self.dirs.work.join(id);
         tokio::fs::create_dir_all(&work).await.map_err(|e| fail(format!("Cannot create a working folder: {e}")))?;
@@ -1354,8 +1402,12 @@ impl Manager {
         let mut can_look_elsewhere = job.site == "soundcloud" && job.resolved.is_none();
         // Resuming a track that was already being fetched from elsewhere.
         if let (Some(_), Some(reason)) = (&job.resolved, job.workaround.as_deref()) {
-            let note = workaround_note(if reason == "drm" { "drm" } else { "preview" }, 2);
-            self.mutate(id, |j| j.note = Some(note.into()));
+            let kind = if reason == "drm" { "drm" } else { "preview" };
+            let note = workaround_note(kind, 2);
+            self.mutate(id, |j| {
+                j.note = Some(note.into());
+                j.note_kind = Some(kind.into());
+            });
         }
         let mut spare: Vec<String> = Vec::new();
         let (info, file) = loop {
@@ -1479,6 +1531,7 @@ impl Manager {
                 .or_else(|| preview_only.then(|| "Preview only: the site offers just a short clip of this track without a paid account.".to_string()));
             j.status = Status::Done;
             j.note = None;
+            j.note_kind = None;
             j.progress = 1.0;
             j.finished = Some(now_ms());
         });
@@ -1612,6 +1665,11 @@ mod tests {
         assert!(is_transient(&friendly_error("ERROR: [youtube] M7amWll73Qg: Unable to download API page: HTTPSConnection(host='www.youtube.com', port=443): Failed to establish a new connection: [Errno 65] No route to host")));
         // A refusal is retried, and only explained once retries run out.
         assert!(is_transient(&friendly_error("ERROR: unable to download video data: HTTP Error 403: Forbidden")));
+        assert_eq!(retry_note(REFUSED, "youtube", 1), "YouTube refused the download, trying again (2 of 3)…");
+        assert_eq!(
+            retry_note("Could not reach the site. Check your connection and retry.", "soundcloud", 2),
+            "Couldn’t reach SoundCloud, trying again (3 of 3)…"
+        );
         assert_eq!(title_from_url("https://soundcloud.com/artist/world-on-fire-1"), "world on fire 1");
         assert_eq!(title_from_url("https://www.youtube.com/watch?v=abc"), "https://www.youtube.com/watch?v=abc");
         assert_eq!(title_from_url("https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A1"), "https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A1");

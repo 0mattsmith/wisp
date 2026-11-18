@@ -34,6 +34,8 @@ const base: Job = {
   matchScore: null,
   cleared: false,
   attempts: 0,
+  noteKind: null,
+  log: null,
   workaround: null,
   note: null,
   created: Date.now(),
@@ -42,9 +44,9 @@ const base: Job = {
 
 let jobs: Job[] = [
   { ...base, id: "7", title: "Glass Harbour", artist: "Lowtide Assembly", album: "Slow Signals", thumbnail: art("#0ea5e9", "#1e3a8a"), duration: 301, format: "flac", status: "done", progress: 1, output: "/Users/you/Music/Wisp/Lowtide Assembly - Glass Harbour.flac", size: 38_400_000, matched: "MusicBrainz", matchScore: 0.93, cleared: true },
-  { ...base, id: "6", title: "Northern Line (Night Edit)", artist: "Marlowe Kite", thumbnail: art("#f97316", "#7c2d12"), site: "soundcloud", status: "failed", error: "macOS is blocking Wisp from reading Safari’s cookies. Turn on Full Disk Access for Wisp (System Settings → Privacy & Security → Full Disk Access), then quit and reopen Wisp. Or pick another browser." },
+  { ...base, id: "6", title: "Northern Line (Night Edit)", artist: "Marlowe Kite", thumbnail: art("#f97316", "#7c2d12"), site: "soundcloud", status: "failed", log: "[soundcloud] Extracting URL: https://soundcloud.com/marlowe/northern-line\n[soundcloud] marlowe/northern-line: Downloading info JSON\nERROR: [Errno 1] Operation not permitted: '/Users/you/Library/Cookies/Cookies.binarycookies'", error: "macOS is blocking Wisp from reading Safari’s cookies. Turn on Full Disk Access for Wisp (System Settings → Privacy & Security → Full Disk Access), then quit and reopen Wisp. Or pick another browser." },
   { ...base, id: "5", title: "Paper Lanterns", artist: "Ines Vauquelin", album: "Small Hours", thumbnail: art("#f056c8", "#4c1d95"), duration: 214, status: "done", progress: 1, output: "/Users/you/Music/Wisp/Ines Vauquelin - Paper Lanterns.mp3", size: 8_612_000, matched: "iTunes", matchScore: 0.97 },
-  { ...base, id: "4", title: "Halcyon Drift", artist: "The Quiet Arcade", thumbnail: art("#22c55e", "#064e3b"), duration: 262, status: "paused", progress: 0.41 },
+  { ...base, id: "4", title: "Halcyon Drift", artist: "The Quiet Arcade", thumbnail: art("#22c55e", "#064e3b"), duration: 262, status: "queued", progress: 0, note: "YouTube refused the download, trying again (2 of 3)…", noteKind: "retry" },
   { ...base, id: "9", title: "World On Fire (Re-Mastered)", artist: "The Royal Concept", thumbnail: art("#f43f5e", "#4c0519"), duration: 200, site: "soundcloud", status: "fetching", workaround: "drm", note: "Finding an unprotected copy…" },
   { ...base, id: "10", title: "D-D-Dance", artist: "The Royal Concept", thumbnail: art("#38bdf8", "#0c4a6e"), duration: 222, site: "soundcloud", status: "downloading", progress: 0.4, downloaded: 3_100_000, total: 8_000_000, speed: 2_400_000, eta: 2, workaround: "preview", note: "Downloading the full track" },
   { ...base, id: "8", title: "Goldrushed (Re-Mastered)", artist: "The Royal Concept", album: "Goldrushed", thumbnail: art("#fb923c", "#7c2d12"), duration: 226, site: "soundcloud", status: "done", progress: 1, workaround: "drm", output: "/Users/you/Music/Wisp/The Royal Concept - Goldrushed.mp3", size: 9_100_000, matched: "iTunes", matchScore: 0.98 },
@@ -127,9 +129,18 @@ export function mockCall(cmd: string, args: Record<string, unknown> = {}): unkno
       return;
     case "tools_status":
       return [
-        { name: "yt-dlp", found: true, managed: true, path: "/app/bin/yt-dlp", version: "2026.10.26", installable: true },
-        { name: "ffmpeg", found: true, managed: false, path: "/opt/homebrew/bin/ffmpeg", version: "8.1.1", installable: true },
-        { name: "ffprobe", found: true, managed: false, path: "/opt/homebrew/bin/ffprobe", version: "8.1.1", installable: true },
+        {
+          name: "yt-dlp",
+          found: true,
+          managed: false,
+          path: "/opt/local/bin/yt-dlp",
+          version: "2026.10.26",
+          error: null,
+          others: [{ path: "/Users/you/Library/Application Support/app.dubplate.desktop/bin/yt-dlp", managed: true, version: null, error: "macOS stopped it (signal 9)." }],
+          installable: true,
+        },
+        { name: "ffmpeg", found: true, managed: false, path: "/opt/local/bin/ffmpeg", version: "9.0.2", error: null, others: [{ path: "/usr/local/bin/ffmpeg", managed: false, version: "6.0", error: null }], installable: true },
+        { name: "ffprobe", found: true, managed: false, path: "/opt/local/bin/ffprobe", version: "9.0.2", error: null, others: [], installable: true },
       ] satisfies ToolStatus[];
     case "search_tracks": {
       const site = args.site as string;

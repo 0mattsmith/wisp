@@ -233,6 +233,14 @@ async fn install_tool(app: AppHandle, mgr: Mgr<'_>, name: String) -> Result<(), 
     Ok(())
 }
 
+/// Delete Wisp's own copy of a tool, so the system's copy is used instead.
+#[tauri::command]
+fn remove_tool(app: AppHandle, mgr: Mgr, name: String) -> Result<(), String> {
+    tools::remove_managed(&mgr.dirs.bin, &name)?;
+    let _ = app.emit("tools-changed", ());
+    Ok(())
+}
+
 #[tauri::command]
 async fn ytdlp_latest(mgr: Mgr<'_>) -> Result<Option<String>, String> {
     Ok(tools::latest_ytdlp(&mgr.http).await)
@@ -561,6 +569,7 @@ pub fn run() {
             search_metadata,
             tools_status,
             install_tool,
+            remove_tool,
             ytdlp_latest,
             open_main,
             hide_panel,

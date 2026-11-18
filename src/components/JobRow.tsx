@@ -15,7 +15,8 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import { call, needsFullDiskAccess, openFullDiskAccess, reveal } from "../api";
+import { useState } from "react";
+import { call, copyText, needsFullDiskAccess, openFullDiskAccess, reveal } from "../api";
 import { bytes, clock, speed } from "../format";
 import { isActive, type Job } from "../types";
 
@@ -59,6 +60,8 @@ export function JobRow({
   /** This is the track the player currently has loaded and playing. */
   nowPlaying?: boolean;
 }) {
+  const [showLog, setShowLog] = useState(false);
+  const [copied, setCopied] = useState(false);
   const active = isActive(job);
   const waiting = job.status === "queued" || job.status === "paused";
   const showBar = active || waiting;
@@ -141,8 +144,24 @@ export function JobRow({
         )}
 
         {job.note && (active || waiting) && (
-          <div className={`row-note ${job.workaround ?? "drm"}`}>
+          <div className={`row-note ${job.noteKind ?? job.workaround ?? "drm"}`}>
             <ShieldAlert size={12} /> {job.note}
+          </div>
+        )}
+
+        {showLog && job.log && job.status === "failed" && (
+          <div className="row-log">
+            <pre className="selectable">{job.log}</pre>
+            <button
+              className="soft-btn"
+              onClick={async () => {
+                await copyText(`${job.source}\n${job.error ?? ""}\n\n${job.log}`);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }}
+            >
+              {copied ? "Copied" : "Copy"}
+            </button>
           </div>
         )}
 
@@ -156,6 +175,14 @@ export function JobRow({
                   {" "}
                   <button className="link-btn" onClick={() => openFullDiskAccess()}>
                     Open settings
+                  </button>
+                </>
+              )}
+              {job.log && !compact && (
+                <>
+                  {" "}
+                  <button className="link-btn" onClick={() => setShowLog(!showLog)}>
+                    {showLog ? "Hide details" : "Details"}
                   </button>
                 </>
               )}
