@@ -349,6 +349,23 @@ async fn check_cookies(mgr: Mgr<'_>) -> Result<String, String> {
     cookies::check(&mgr.settings(), &mgr.dirs.bin, &mgr.dirs.work).await
 }
 
+/// Open System Settings at Privacy & Security → Full Disk Access (macOS).
+#[tauri::command]
+fn open_full_disk_access() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("/usr/bin/open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("Could not open System Settings: {e}"))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("Full Disk Access is a macOS setting.".into())
+    }
+}
+
 /// The bookmark code for the "Send to Wisp" browser button.
 #[tauri::command]
 fn bookmarklet() -> String {
@@ -559,6 +576,7 @@ pub fn run() {
             add_share_shortcut,
             detect_browser,
             check_cookies,
+            open_full_disk_access,
             quit_app,
         ])
         .build(tauri::generate_context!())

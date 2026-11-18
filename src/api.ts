@@ -155,3 +155,11 @@ export async function copyText(text: string): Promise<void> {
     await navigator.clipboard.writeText(text);
   }
 }
+
+/** macOS: open System Settings at Privacy & Security → Full Disk Access. */
+export async function openFullDiskAccess(): Promise<void> {
+  if (inTauri) await invoke("open_full_disk_access");
+}
+
+/** Whether an error message is macOS refusing access to a browser's cookies. */
+export const needsFullDiskAccess = (text: string | null | undefined) => !!text && text.includes("Full Disk Access");

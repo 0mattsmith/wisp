@@ -42,7 +42,7 @@ const base: Job = {
 
 let jobs: Job[] = [
   { ...base, id: "7", title: "Glass Harbour", artist: "Lowtide Assembly", album: "Slow Signals", thumbnail: art("#0ea5e9", "#1e3a8a"), duration: 301, format: "flac", status: "done", progress: 1, output: "/Users/you/Music/Wisp/Lowtide Assembly - Glass Harbour.flac", size: 38_400_000, matched: "MusicBrainz", matchScore: 0.93, cleared: true },
-  { ...base, id: "6", title: "Northern Line (Night Edit)", artist: "Marlowe Kite", thumbnail: art("#f97316", "#7c2d12"), site: "soundcloud", status: "failed", error: "Not available: this track was removed by the uploader." },
+  { ...base, id: "6", title: "Northern Line (Night Edit)", artist: "Marlowe Kite", thumbnail: art("#f97316", "#7c2d12"), site: "soundcloud", status: "failed", error: "macOS is blocking Wisp from reading Safari’s cookies. Turn on Full Disk Access for Wisp (System Settings → Privacy & Security → Full Disk Access), then quit and reopen Wisp. Or pick another browser." },
   { ...base, id: "5", title: "Paper Lanterns", artist: "Ines Vauquelin", album: "Small Hours", thumbnail: art("#f056c8", "#4c1d95"), duration: 214, status: "done", progress: 1, output: "/Users/you/Music/Wisp/Ines Vauquelin - Paper Lanterns.mp3", size: 8_612_000, matched: "iTunes", matchScore: 0.97 },
   { ...base, id: "4", title: "Halcyon Drift", artist: "The Quiet Arcade", thumbnail: art("#22c55e", "#064e3b"), duration: 262, status: "paused", progress: 0.41 },
   { ...base, id: "9", title: "World On Fire (Re-Mastered)", artist: "The Royal Concept", thumbnail: art("#f43f5e", "#4c0519"), duration: 200, site: "soundcloud", status: "fetching", workaround: "drm", note: "Finding an unprotected copy…" },

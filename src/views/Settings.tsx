@@ -1,6 +1,6 @@
-import { AppWindow, Check, Copy, Download, FolderOpen, LoaderCircle, RefreshCw, Share, ShieldCheck } from "lucide-react";
+import { AppWindow, Check, Copy, Download, FolderOpen, LoaderCircle, LockOpen, RefreshCw, Share, ShieldCheck } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import { call, copyText, isMac, loginStartEnabled, on, openExternal, pickBrowser, pickFolder, setLoginStart } from "../api";
+import { call, copyText, isMac, loginStartEnabled, needsFullDiskAccess, on, openExternal, openFullDiskAccess, pickBrowser, pickFolder, setLoginStart } from "../api";
 import { NotLoaded, PageHeader } from "../components/Chrome";
 import { FormatPicker } from "../components/FormatPicker";
 import { bytes } from "../format";
@@ -126,6 +126,16 @@ function Cookies({ settings: s }: { settings: SettingsT }) {
           </button>
         </Row>
       )}
+      {isMac && s.cookiesBrowser === "safari" && (
+        <Row
+          title="Safari needs Full Disk Access"
+          hint="macOS keeps Safari’s cookies private. Turn on Wisp under Privacy & Security → Full Disk Access, then quit and reopen Wisp."
+        >
+          <button className="soft-btn" onClick={() => openFullDiskAccess()}>
+            <LockOpen size={14} /> Open settings
+          </button>
+        </Row>
+      )}
       {s.cookiesBrowser !== "" && (
         <Row
           title="Check sign-in"
@@ -139,6 +149,11 @@ function Cookies({ settings: s }: { settings: SettingsT }) {
             )
           }
         >
+          {report && needsFullDiskAccess(report.text) && s.cookiesBrowser !== "safari" && (
+            <button className="soft-btn" onClick={() => openFullDiskAccess()}>
+              <LockOpen size={14} /> Open settings
+            </button>
+          )}
           <button className="soft-btn" disabled={checking} onClick={check}>
             {checking ? <LoaderCircle className="spin" size={14} /> : <ShieldCheck size={14} />} Check
           </button>

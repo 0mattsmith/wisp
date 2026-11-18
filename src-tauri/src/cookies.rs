@@ -425,6 +425,16 @@ pub fn prepare(settings: &Settings, scratch: &Path) -> Result<CookieArgs, String
     }
 }
 
+/// What to say when macOS privacy protection stops Wisp reading a browser's
+/// cookies (Safari's always need Full Disk Access).
+pub const PRIVACY_HELP: &str = "macOS is blocking Wisp from reading Safari’s cookies. Turn on Full Disk Access for Wisp (System Settings → Privacy & Security → Full Disk Access), then quit and reopen Wisp. Or pick another browser.";
+
+/// Whether yt-dlp's output shows macOS privacy protection refusing a cookie file.
+pub fn blocked_by_privacy(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    lower.contains("operation not permitted") && (lower.contains("cookies") || lower.contains("safari"))
+}
+
 /// A plain-language report of what the chosen browser's cookies would give.
 pub fn summarise(cookies: &[Cookie]) -> String {
     let count = |site: &str| cookies.iter().filter(|c| c.domain.trim_start_matches('.').ends_with(site)).count();
@@ -503,6 +513,9 @@ pub async fn check(settings: &Settings, bin_dir: &Path, scratch: &Path) -> Resul
         .map_err(|e| e.to_string())?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
+        if blocked_by_privacy(&err) {
+            return Err(PRIVACY_HELP.to_string());
+        }
         let line = err.lines().rev().find(|l| l.contains("ERROR")).unwrap_or("yt-dlp could not read the cookies.");
         return Err(format!("Could not read {name}’s cookies. {}", line.trim_start_matches("ERROR:").trim()));
     }
@@ -540,6 +553,14 @@ mod tests {
         let enc = encrypt(&key, ".youtube.com", "secret", 24);
         assert_eq!(decrypt_value(&derive_key(b"wrong"), &enc, 24), None);
         assert_eq!(decrypt_value(&key, b"v20abcdef", 24), None);
+    }
+
+    #[test]
+    fn spots_macos_privacy_blocks() {
+        // As reported from a friend's Mac, with Safari chosen.
+        assert!(blocked_by_privacy("ERROR: [Errno 1] Operation not permitted: '/Users/user/Library/Cookies/Cookies.binarycookies'"));
+        assert!(blocked_by_privacy("PermissionError: [Errno 1] Operation not permitted: '/Users/x/Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies'"));
+        assert!(!blocked_by_privacy("ERROR: unable to download video data: HTTP Error 403: Forbidden"));
     }
 
     #[test]

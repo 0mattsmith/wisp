@@ -15,7 +15,7 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import { call, reveal } from "../api";
+import { call, needsFullDiskAccess, openFullDiskAccess, reveal } from "../api";
 import { bytes, clock, speed } from "../format";
 import { isActive, type Job } from "../types";
 
@@ -148,7 +148,18 @@ export function JobRow({
 
         {job.error && job.status !== "done" ? (
           <div className="row-error">
-            <CircleAlert size={13} /> {job.error}
+            <CircleAlert size={13} />
+            <span>
+              {job.error}
+              {needsFullDiskAccess(job.error) && (
+                <>
+                  {" "}
+                  <button className="link-btn" onClick={() => openFullDiskAccess()}>
+                    Open settings
+                  </button>
+                </>
+              )}
+            </span>
           </div>
         ) : (
           <div className="chips">

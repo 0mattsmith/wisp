@@ -426,7 +426,9 @@ fn ffmpeg_codec_args(format: &str, quality: &str, ogg: Ogg) -> Vec<String> {
 fn friendly_error(line: &str) -> String {
     let msg = line.trim().trim_start_matches("ERROR:").trim();
     let lower = msg.to_lowercase();
-    if lower.contains("403") || lower.contains("nsig") || lower.contains("requested format is not available") {
+    if cookies::blocked_by_privacy(msg) {
+        cookies::PRIVACY_HELP.into()
+    } else if lower.contains("403") || lower.contains("nsig") || lower.contains("requested format is not available") {
         // The real wording is chosen once retries are used up; see `refused_message`.
         REFUSED.into()
     } else if lower.contains("drm") {
@@ -729,6 +731,9 @@ impl Manager {
                 .map_err(|e| format!("Could not start yt-dlp: {e}"))?;
             if !out.status.success() {
                 let err = String::from_utf8_lossy(&out.stderr);
+                if cookies::blocked_by_privacy(&err) {
+                    return Err(cookies::PRIVACY_HELP.to_string());
+                }
                 let line = err.lines().rev().find(|l| l.contains("ERROR")).unwrap_or("Could not read this playlist");
                 return Err(friendly_error(line));
             }
@@ -1258,7 +1263,7 @@ impl Manager {
                     }
                 } else if let Some(path) = line.strip_prefix("FILE|") {
                     file = Some(PathBuf::from(path.trim()));
-                } else if line.starts_with("ERROR") {
+                } else if line.starts_with("ERROR") || cookies::blocked_by_privacy(line) {
                     last_error = Some(friendly_error(line));
                 }
             })
