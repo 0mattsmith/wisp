@@ -56,23 +56,48 @@ fn search_dirs() -> Vec<PathBuf> {
             dirs.push(h.join(".local").join("bin"));
             dirs.push(h.join("bin"));
             dirs.push(h.join(".deno").join("bin"));
+            // `pip install --user` on macOS: ~/Library/Python/3.x/bin, newest Python first.
+            let mut user_pythons: Vec<PathBuf> = std::fs::read_dir(h.join("Library").join("Python"))
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|e| e.path().join("bin"))
+                .filter(|p| p.is_dir())
+                .collect();
+            user_pythons.sort();
+            dirs.extend(user_pythons.into_iter().rev());
         }
     }
     dirs
 }
 
 /// Returns the tool path and whether it is the app-managed copy.
+/// ffmpeg and ffprobe come from the same build and belong in the same folder:
+/// yt-dlp only looks for ffprobe next to the ffmpeg it is given.
+pub const FFMPEG_PAIR: [&str; 2] = ["ffmpeg", "ffprobe"];
+
 pub fn find(name: &str, bin_dir: &Path) -> Option<(PathBuf, bool)> {
+    let dirs: Vec<(PathBuf, bool)> = std::iter::once((bin_dir.to_path_buf(), true))
+        .chain(search_dirs().into_iter().map(|d| (d, false)))
+        .collect();
+    find_in(name, dirs)
+}
+
+/// `find`, over a given list of folders (each marked as Wisp's own or not).
+fn find_in(name: &str, dirs: Vec<(PathBuf, bool)>) -> Option<(PathBuf, bool)> {
     let file = exe(name);
-    let managed = bin_dir.join(&file);
-    if managed.is_file() {
-        return Some((managed, true));
+
+    // Prefer a folder holding the complete pair (MacPorts' or Homebrew's ffmpeg
+    // and ffprobe) over a lone ffmpeg found earlier in the list.
+    if FFMPEG_PAIR.contains(&name) {
+        let pair = dirs.iter().find(|(d, _)| FFMPEG_PAIR.iter().all(|t| d.join(exe(t)).is_file()));
+        if let Some((dir, managed)) = pair {
+            return Some((dir.join(&file), *managed));
+        }
     }
-    search_dirs()
-        .into_iter()
-        .map(|d| d.join(&file))
-        .find(|p| p.is_file())
-        .map(|p| (p, false))
+    dirs.into_iter()
+        .map(|(d, managed)| (d.join(&file), managed))
+        .find(|(p, _)| p.is_file())
 }
 
 /// A JavaScript runtime for yt-dlp's YouTube signature solving, as a
@@ -221,8 +246,24 @@ async fn download_to(
     Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
-/// Download (or update) one tool into the app-managed bin folder.
+/// Download (or update) a tool into the app-managed bin folder. Asking for
+/// ffmpeg or ffprobe installs both, so they always sit side by side.
 pub async fn install(
+    app: &AppHandle,
+    http: &reqwest::Client,
+    bin_dir: &Path,
+    name: &str,
+) -> Result<(), String> {
+    if FFMPEG_PAIR.contains(&name) {
+        for tool in FFMPEG_PAIR {
+            install_one(app, http, bin_dir, tool).await?;
+        }
+        return Ok(());
+    }
+    install_one(app, http, bin_dir, name).await
+}
+
+async fn install_one(
     app: &AppHandle,
     http: &reqwest::Client,
     bin_dir: &Path,
@@ -329,4 +370,42 @@ pub async fn has_encoder(ffmpeg: &Path, encoder: &str) -> bool {
         }
     };
     listing.lines().any(|l| l.split_whitespace().nth(1) == Some(encoder))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn touch(dir: &Path, names: &[&str]) {
+        std::fs::create_dir_all(dir).unwrap();
+        for n in names {
+            std::fs::write(dir.join(exe(n)), b"").unwrap();
+        }
+    }
+
+    /// A friend's Mac: a lone ffmpeg in /usr/local/bin, and MacPorts' complete
+    /// set (ffmpeg, ffprobe, yt-dlp, deno) in /opt/local/bin, searched later.
+    #[test]
+    fn keeps_ffmpeg_and_ffprobe_together() {
+        let root = std::env::temp_dir().join(format!("wisp-tools-test-{}", std::process::id()));
+        let (wisp, usr_local, macports) = (root.join("wisp"), root.join("usr-local"), root.join("opt-local"));
+        touch(&wisp, &[]);
+        touch(&usr_local, &["ffmpeg"]);
+        touch(&macports, &["ffmpeg", "ffprobe", "yt-dlp", "deno"]);
+        let dirs = || vec![(wisp.clone(), true), (usr_local.clone(), false), (macports.clone(), false)];
+
+        assert_eq!(find_in("ffmpeg", dirs()).unwrap().0, macports.join(exe("ffmpeg")));
+        assert_eq!(find_in("ffprobe", dirs()).unwrap().0, macports.join(exe("ffprobe")));
+        assert_eq!(find_in("yt-dlp", dirs()).unwrap().0, macports.join(exe("yt-dlp")));
+
+        // Once Wisp has installed its own pair, that wins.
+        touch(&wisp, &["ffmpeg", "ffprobe"]);
+        assert_eq!(find_in("ffmpeg", dirs()), Some((wisp.join(exe("ffmpeg")), true)));
+
+        // With no complete pair anywhere, the first ffmpeg found is still used.
+        let lone = vec![(usr_local.clone(), false)];
+        assert_eq!(find_in("ffmpeg", lone.clone()).unwrap().0, usr_local.join(exe("ffmpeg")));
+        assert_eq!(find_in("ffprobe", lone), None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

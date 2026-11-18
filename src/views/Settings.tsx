@@ -276,7 +276,7 @@ function Tools() {
   return (
     <>
       {tools.map((t) => {
-        const outdated = t.name === "yt-dlp" && t.found && latest && t.version && t.version !== latest;
+        const outdated = t.name === "yt-dlp" && t.found && latest && t.version && t.version < latest;
         const working = busy === t.name;
         return (
           <Row

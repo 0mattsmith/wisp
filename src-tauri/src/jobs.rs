@@ -185,9 +185,13 @@ fn is_preview(info: &Value) -> bool {
     info.get("format_id").and_then(|f| f.as_str()).is_some_and(|f| f.contains("preview"))
 }
 
+/// A site refusing a download (HTTP 403 and similar). Usually passes on its
+/// own; occasionally it really does mean yt-dlp needs updating.
+const REFUSED: &str = "The site refused this download.";
+
 /// Failures worth one more automatic go: the network or the site hiccuped.
 fn is_transient(message: &str) -> bool {
-    message.starts_with("Could not reach the site") || message.starts_with("The site did not respond in time")
+    message.starts_with("Could not reach the site") || message.starts_with("The site did not respond in time") || message == REFUSED
 }
 
 // ------------------------------------------------------------ URL handling
@@ -423,7 +427,8 @@ fn friendly_error(line: &str) -> String {
     let msg = line.trim().trim_start_matches("ERROR:").trim();
     let lower = msg.to_lowercase();
     if lower.contains("403") || lower.contains("nsig") || lower.contains("requested format is not available") {
-        "The site refused this download, which usually means yt-dlp is out of date. Update it under Settings → Tools, then retry.".into()
+        // The real wording is chosen once retries are used up; see `refused_message`.
+        REFUSED.into()
     } else if lower.contains("drm") {
         "This track is DRM-protected by the site, so it cannot be downloaded.".into()
     } else if lower.contains("sign in to confirm") || lower.contains("age") && lower.contains("restricted") {
@@ -1028,6 +1033,7 @@ impl Manager {
                 // A timeout or dropped connection gets up to two automatic
                 // retries, a few seconds apart, before it is reported.
                 let attempts = self.get(&job.id).map(|j| j.attempts).unwrap_or(u8::MAX);
+                let msg = if msg == REFUSED && attempts >= 3 { self.refused_message().await } else { msg };
                 if is_transient(&msg) && attempts < 3 {
                     self.mutate(&job.id, |j| {
                         j.status = Status::Queued;
@@ -1037,7 +1043,9 @@ impl Manager {
                         j.eta = None;
                     });
                     self.clean_work(&job.id);
-                    tokio::time::sleep(Duration::from_secs(4)).await;
+                    // A refusal is given a little longer to pass than a network blip.
+                    let wait = if msg == REFUSED { 10 } else { 4 };
+                    tokio::time::sleep(Duration::from_secs(wait)).await;
                 } else {
                     self.mutate(&job.id, |j| {
                         j.status = Status::Failed;
@@ -1116,6 +1124,25 @@ impl Manager {
         match *stop.borrow() {
             Some(s) => Err(Outcome::Stopped(s)),
             None => Ok(()),
+        }
+    }
+
+    /// What to tell the user once a site has refused a download several times:
+    /// only blame yt-dlp when it really is behind the latest release.
+    async fn refused_message(&self) -> String {
+        let current = match tools::find("yt-dlp", &self.dirs.bin) {
+            Some((path, _)) => tools::version("yt-dlp", &path).await,
+            None => None,
+        };
+        let latest = tools::latest_ytdlp(&self.http).await;
+        match (current, latest) {
+            (Some(have), Some(newest)) if have < newest => format!(
+                "The site refused this download because yt-dlp is out of date (this copy is {have}; the latest is {newest}). Update it under Settings → Tools, then retry."
+            ),
+            (Some(have), _) => format!(
+                "The site refused this download. yt-dlp is up to date ({have}), so this is usually temporary: try again in a few minutes. If it keeps happening, turn on Settings → Downloads → Use cookies from."
+            ),
+            (None, _) => "The site refused this download. Try again in a few minutes.".into(),
         }
     }
 
@@ -1578,7 +1605,8 @@ mod tests {
         assert!(is_transient(&friendly_error("ERROR: [soundcloud] Unable to download JSON metadata: Read timed out. (read timeout=20.0)")));
         assert!(!is_transient(&friendly_error("ERROR: [soundcloud] 1: This video is DRM protected")));
         assert!(is_transient(&friendly_error("ERROR: [youtube] M7amWll73Qg: Unable to download API page: HTTPSConnection(host='www.youtube.com', port=443): Failed to establish a new connection: [Errno 65] No route to host")));
-        assert!(!is_transient(&friendly_error("ERROR: unable to download video data: HTTP Error 403: Forbidden")));
+        // A refusal is retried, and only explained once retries run out.
+        assert!(is_transient(&friendly_error("ERROR: unable to download video data: HTTP Error 403: Forbidden")));
         assert_eq!(title_from_url("https://soundcloud.com/artist/world-on-fire-1"), "world on fire 1");
         assert_eq!(title_from_url("https://www.youtube.com/watch?v=abc"), "https://www.youtube.com/watch?v=abc");
         assert_eq!(title_from_url("https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A1"), "https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A1");
