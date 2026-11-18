@@ -1,4 +1,4 @@
-import { FORMATS, LOSSLESS, QUALITIES } from "../types";
+import { FORMATS, formatHint, formatLabel, LOSSLESS, ORIGINAL, QUALITIES } from "../types";
 
 /** Format pills plus a bitrate menu (hidden for lossless formats). */
 export function FormatPicker({
@@ -16,12 +16,14 @@ export function FormatPicker({
     <div className="format-picker">
       <div className="segmented" role="radiogroup" aria-label="Output format">
         {FORMATS.map((f) => (
-          <button key={f} role="radio" aria-checked={format === f} className={format === f ? "on" : ""} onClick={() => onFormat(f)}>
-            {f.toUpperCase()}
+          <button key={f} role="radio" aria-checked={format === f} className={format === f ? "on" : ""} title={formatHint(f)} onClick={() => onFormat(f)}>
+            {formatLabel(f)}
           </button>
         ))}
       </div>
-      {LOSSLESS.includes(format) ? (
+      {format === ORIGINAL ? (
+        <span className="lossless-note">Original quality</span>
+      ) : LOSSLESS.includes(format) ? (
         <span className="lossless-note">Lossless</span>
       ) : (
         <select className="select" value={quality} onChange={(e) => onQuality(e.target.value)} aria-label="Quality">

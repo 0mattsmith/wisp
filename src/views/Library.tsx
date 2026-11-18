@@ -5,7 +5,7 @@ import { PageHeader, ToolButton } from "../components/Chrome";
 import { bytes, clock, fileName } from "../format";
 import { playTracks, togglePlayback, usePlayerState } from "../playerControl";
 import { toast, useJobs, useSettings } from "../store";
-import { FORMATS, type Job } from "../types";
+import { CONVERT_TO, type Job } from "../types";
 
 type Layout = "grid" | "list";
 
@@ -74,7 +74,7 @@ export function Library({ onEdit }: { onEdit: (job: Job) => void }) {
         </button>
         {menu === job.id && (
           <div className="menu" onMouseLeave={() => setMenu(null)}>
-            {FORMATS.filter((f) => f !== job.format).map((f) => (
+            {CONVERT_TO.filter((f) => f !== job.format).map((f) => (
               <button key={f} onClick={() => convert(job, f)}>
                 Convert to {f.toUpperCase()}
               </button>

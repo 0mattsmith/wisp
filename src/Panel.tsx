@@ -7,7 +7,7 @@ import { Logo, Wordmark } from "./components/Logo";
 import { extractLinks } from "./format";
 import { showPlayer } from "./playerControl";
 import { addLinks, saveSettings, toast, useJobs, useSettings, useToasts } from "./store";
-import { FORMATS, isActive } from "./types";
+import { FORMATS, formatHint, formatLabel, isActive } from "./types";
 
 const savedShowFinished = () => {
   try {
@@ -142,8 +142,8 @@ export function Panel() {
         {settings && (
           <div className="segmented tiny">
             {FORMATS.map((f) => (
-              <button key={f} className={settings.format === f ? "on" : ""} onClick={() => saveSettings({ format: f })}>
-                {f.toUpperCase()}
+              <button key={f} className={settings.format === f ? "on" : ""} title={formatHint(f)} onClick={() => saveSettings({ format: f })}>
+                {formatLabel(f)}
               </button>
             ))}
           </div>

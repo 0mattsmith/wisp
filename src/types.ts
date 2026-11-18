@@ -148,8 +148,17 @@ export interface ToolProgress {
   done: boolean;
 }
 
-export const FORMATS = ["mp3", "flac", "wav", "m4a", "aac", "ogg"] as const;
+export const FORMATS = ["mp3", "flac", "wav", "m4a", "aac", "ogg", "none"] as const;
 export const LOSSLESS = ["flac", "wav"];
+/** No conversion: SoundCloud audio as served, YouTube's video. */
+export const ORIGINAL = "none";
+/** Formats a file can be converted to (everything but "None"). */
+export const CONVERT_TO = FORMATS.filter((f) => f !== ORIGINAL);
+
+/** How a format is written on its button. */
+export const formatLabel = (f: string) => (f === ORIGINAL ? "None" : f.toUpperCase());
+export const formatHint = (f: string) =>
+  f === ORIGINAL ? "No conversion: SoundCloud audio exactly as served, and YouTube’s video, untouched" : `Convert to ${f.toUpperCase()}`;
 export const QUALITIES = [
   { value: "best", label: "Best" },
   { value: "320", label: "320 kbps" },

@@ -4,7 +4,7 @@
 use crate::cookies;
 use crate::elsewhere;
 use crate::meta::{self, TrackMeta};
-use crate::settings::Settings;
+use crate::settings::{Settings, ORIGINAL};
 use crate::{tags, tools};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -194,6 +194,12 @@ fn retry_note(message: &str, site: &str, attempt: u8) -> String {
     };
     let why = if message == REFUSED { format!("{site} refused the download") } else { format!("Couldn’t reach {site}") };
     format!("{why}, trying again ({} of 3)…", attempt + 1)
+}
+
+/// With no conversion, a YouTube page is kept as its video. A track asked for
+/// on SoundCloud stays audio, even when it is fetched from YouTube instead.
+fn keeps_video(job: &Job) -> bool {
+    job.site == "youtube"
 }
 
 /// SoundCloud serves only a 30-second clip of subscriber-only tracks.
@@ -859,6 +865,10 @@ impl Manager {
         let settings = self.settings();
         let format = format.filter(|f| crate::settings::FORMATS.contains(&f.as_str())).unwrap_or(settings.format);
         let quality = quality.unwrap_or(settings.quality);
+        // "None" means no conversion, so there is nothing to convert files to.
+        if convert && format == ORIGINAL {
+            return 0;
+        }
         let mut added = 0;
         for raw in paths {
             let path = PathBuf::from(&raw);
@@ -1209,7 +1219,6 @@ impl Manager {
         stop: &mut watch::Receiver<Option<Stop>>,
     ) -> Result<(Value, PathBuf), Outcome> {
         let id = job.id.as_str();
-        let fmt = yt_format(&job.format, &job.quality, ogg);
         let mut cmd = tools::command(ytdlp);
         cmd.args([
             "--no-playlist", "--newline", "--progress", "--color", "never", "--no-simulate",
@@ -1220,16 +1229,38 @@ impl Manager {
             "--print",
             "before_dl:META|%(.{id,title,uploader,channel,artist,track,album,album_artist,release_year,release_date,upload_date,duration,thumbnail,webpage_url,genres,track_number,format_id})j",
             "--print", "after_move:FILE|%(filepath)s",
-            "-f", fmt.selector, "-x", "--audio-format", fmt.audio_format,
             "--concurrent-fragments", "4", "--retries", "5", "--fragment-retries", "5", "--socket-timeout", "20",
             "-o", "%(id)s.%(ext)s",
         ]);
         cmd.arg("-P").arg(work).arg("--ffmpeg-location").arg(ffmpeg);
-        if let Some(q) = &fmt.quality {
-            cmd.args(["--audio-quality", q]);
-        }
-        if settings.sponsorblock {
-            cmd.args(["--sponsorblock-remove", "music_offtopic"]);
+        if job.format == ORIGINAL {
+            // No conversion. A YouTube page gives its video (picture and sound joined
+            // without re-encoding); anything else, including a SoundCloud track found
+            // on YouTube, gives the audio exactly as served.
+            //
+            // From YouTube, prefer the H.264 MP4 video and the M4A (AAC) audio it also
+            // serves: still the original files, but they play in QuickTime and Music
+            // on any Mac and hold tags. SoundCloud's best includes the uploader's own
+            // file when they allow downloads, so it is left alone.
+            let from_youtube = site_of(url) == "youtube";
+            let selector = if keeps_video(job) {
+                "bv*[vcodec^=avc1]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b"
+            } else if from_youtube {
+                "bestaudio[ext=m4a]/bestaudio/best"
+            } else {
+                "bestaudio/best"
+            };
+            cmd.args(["-f", selector]);
+        } else {
+            let fmt = yt_format(&job.format, &job.quality, ogg);
+            cmd.args(["-f", fmt.selector, "-x", "--audio-format", fmt.audio_format]);
+            if let Some(q) = &fmt.quality {
+                cmd.args(["--audio-quality", q]);
+            }
+            // Cutting sections out means re-encoding, so not when keeping the original.
+            if settings.sponsorblock {
+                cmd.args(["--sponsorblock-remove", "music_offtopic"]);
+            }
         }
         // Kept until yt-dlp is done: a cookie file Wisp wrote is deleted with it.
         let cookie_args = {
@@ -1331,6 +1362,12 @@ impl Manager {
         }
         // What yt-dlp names the file it produces, and what it is saved as.
         let produced = if ogg == Ogg::Opus && job.format == "ogg" { "opus" } else { job.format.as_str() };
+        let is_partial = |p: &Path| {
+            matches!(
+                p.extension().map(|x| x.to_string_lossy().to_lowercase()).as_deref(),
+                Some("part" | "ytdl" | "json" | "temp" | "tmp" | "jpg" | "webp" | "png")
+            )
+        };
         let file = match file.filter(|f| f.is_file()) {
             Some(f) => f,
             None => std::fs::read_dir(work)
@@ -1338,9 +1375,15 @@ impl Manager {
                 .and_then(|d| {
                     d.filter_map(|e| e.ok())
                         .map(|e| e.path())
-                        .find(|p| p.extension().map(|x| x.to_string_lossy().to_lowercase()).as_deref() == Some(produced))
+                        .find(|p| {
+                            if job.format == ORIGINAL {
+                                p.is_file() && !is_partial(p)
+                            } else {
+                                p.extension().map(|x| x.to_string_lossy().to_lowercase()).as_deref() == Some(produced)
+                            }
+                        })
                 })
-                .ok_or_else(|| fail("The download finished but produced no audio file."))?,
+                .ok_or_else(|| fail("The download finished but produced no file."))?,
         };
         Ok((info.unwrap_or(Value::Null), file))
     }
@@ -1462,7 +1505,15 @@ impl Manager {
             }
             break result?;
         };
-        let ext = job.format.as_str();
+        // Without conversion, the file keeps whatever type the site served.
+        let ext = if job.format == ORIGINAL {
+            file.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_else(|| "bin".into())
+        } else {
+            job.format.clone()
+        };
+        let ext = ext.as_str();
+        let original = job.format == ORIGINAL;
+        let video = original && keeps_video(job);
 
         // ---- metadata
         self.mutate(id, |j| {
@@ -1494,7 +1545,8 @@ impl Manager {
         }
 
         let mut cover: Option<Vec<u8>> = None;
-        if settings.embed_cover {
+        // A video keeps its own picture; only audio gets cover art.
+        if settings.embed_cover && !video {
             let thumb = info.get("thumbnail").and_then(|t| t.as_str()).map(|t| t.to_string());
             for (url, crop) in [(match_cover, false), (thumb, settings.square_cover)] {
                 let Some(url) = url else { continue };
@@ -1512,7 +1564,9 @@ impl Manager {
         let tagged = tokio::task::spawn_blocking(move || {
             let thumb = tag_cover.as_deref().and_then(|c| tags::data_url(c, 256));
             let change = tag_cover.map(tags::CoverChange::Set).unwrap_or(tags::CoverChange::Keep);
-            (tags::write(&tag_path, &tag_meta, change, true), thumb)
+            let result = tags::write(&tag_path, &tag_meta, change, true);
+            // Some original files (WebM, MKV) cannot hold tags; that is fine, not an error.
+            (if original { Ok(()) } else { result }, thumb)
         })
         .await
         .map_err(|e| fail(e.to_string()))?;
@@ -1543,6 +1597,9 @@ impl Manager {
                 .err()
                 .map(|e| format!("Saved, but tags were not written: {e}"))
                 .or_else(|| preview_only.then(|| "Preview only: the site offers just a short clip of this track without a paid account.".to_string()));
+            if original {
+                j.format = ext.to_string();
+            }
             j.status = Status::Done;
             j.note = None;
             j.note_kind = None;

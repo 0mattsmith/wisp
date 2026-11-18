@@ -10,7 +10,7 @@ Download, convert and tag music from YouTube and SoundCloud. A light, native-fee
 - **Download** single tracks, playlists, sets and channels with yt-dlp, several at a time. Network timeouts are retried automatically.
 - **Organise** files with a naming pattern such as `{albumartist}/{album}/{track} {title}`; a `/` starts a folder.
 - **Never stuck with a clip:** when a SoundCloud track is DRM-protected or only offers a 30-second preview, Wisp identifies the exact recording (artist, title, version and length, cross-checked with the music databases) and downloads that recording from YouTube instead. Nothing is downloaded unless the match is exact.
-- **Convert** to MP3, FLAC, WAV, M4A, AAC or OGG with ffmpeg. Where the source already holds the target codec (for example M4A from YouTube) the audio is copied rather than re-encoded.
+- **Convert** to MP3, FLAC, WAV, M4A, AAC or OGG, or choose **None** to keep the original: SoundCloud audio exactly as served, and YouTube's video (preferring H.264 MP4 and M4A audio, which play on any Mac) with ffmpeg. Where the source already holds the target codec (for example M4A from YouTube) the audio is copied rather than re-encoded.
 - **Tag** automatically from iTunes, Deezer, MusicBrainz (with Cover Art Archive) and Discogs, including cover art. Every file can be re-tagged by hand in the editor.
 - **Convert and tag files you already have** by dropping them on the window.
 - **Send from your browser** with a "Send to Wisp" bookmark button, or (macOS) from the Share menu via a Shortcut. Both open a `wisp://add?url=…` link, which only accepts YouTube and SoundCloud pages.

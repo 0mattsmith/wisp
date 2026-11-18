@@ -40,16 +40,18 @@ export function App() {
     return () => void off.then((f) => f());
   }, []);
 
+  const format = settings?.format;
   // Dropped files: convert them from Downloads, or just add them from Library.
   useEffect(() => {
     const off = onFileDrop(async (paths) => {
-      const convert = view !== "library";
+      // With "None" chosen there is nothing to convert to: dropped files just join the Library.
+      const convert = view !== "library" && format !== "none";
       const added = await call<number>("add_files", { paths, convert });
       if (!added) toast("No supported audio files in that drop", "error");
       else if (!convert) toast(`Added ${added} file${added === 1 ? "" : "s"}`);
     }, setDropping);
     return () => void off.then((f) => f());
-  }, [view]);
+  }, [view, format]);
 
   useEffect(() => {
     const check = async () => {
@@ -186,7 +188,11 @@ export function App() {
         <div className="drop-overlay">
           <div>
             <Upload size={28} />
-            <p>{view === "library" ? "Drop to add to your Library" : `Drop to convert to ${settings?.format.toUpperCase() ?? "MP3"}`}</p>
+            <p>
+              {view === "library" || settings?.format === "none"
+                ? "Drop to add to your Library"
+                : `Drop to convert to ${settings?.format.toUpperCase() ?? "MP3"}`}
+            </p>
           </div>
         </div>
       )}

@@ -7,7 +7,7 @@ import { JobRow } from "../components/JobRow";
 import { clock, extractLinks, SUPPORTED_LINK } from "../format";
 import { addLinks, saveSettings, toast, useJobs, useSettings } from "../store";
 import { playTracks, togglePlayback, usePlayerState } from "../playerControl";
-import { isActive, type Job, type SearchHit } from "../types";
+import { isActive, ORIGINAL, type Job, type SearchHit } from "../types";
 
 interface SearchState {
   query: string;
@@ -93,6 +93,10 @@ export function Downloads({ onEdit }: { onEdit: (job: Job) => void }) {
   };
 
   const convertFiles = async () => {
+    if (settings.format === ORIGINAL) {
+      toast("Pick a format to convert to: “None” keeps files exactly as they are", "error");
+      return;
+    }
     const paths = await pickFiles("audio");
     if (paths.length) await call("add_files", { paths, convert: true, format: settings.format, quality: settings.quality });
   };

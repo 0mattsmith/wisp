@@ -1,13 +1,15 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-pub const FORMATS: [&str; 6] = ["mp3", "flac", "wav", "m4a", "aac", "ogg"];
+/// "none" keeps what the site serves: SoundCloud's audio as it is, YouTube's video.
+pub const FORMATS: [&str; 7] = ["mp3", "flac", "wav", "m4a", "aac", "ogg", "none"];
+pub const ORIGINAL: &str = "none";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     pub output_dir: String,
-    /// mp3 | flac | wav | m4a | aac | ogg
+    /// mp3 | flac | wav | m4a | aac | ogg | none (no conversion)
     pub format: String,
     /// best | 320 | 256 | 192 | 128 (ignored for lossless formats)
     pub quality: String,
