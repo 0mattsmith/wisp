@@ -1,0 +1,35 @@
+# A one-minute check that the Mac signing certificate works on GitHub's build
+# machines, without making a release. Run it from the Actions tab
+# ("Check Mac signing" → Run workflow) or with: gh workflow run signing-check.yml
+name: Check Mac signing
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare Mac code signing
+        env:
+          WISP_SIGNING_CERTIFICATE: ${{ secrets.WISP_SIGNING_CERTIFICATE }}
+          WISP_SIGNING_PASSWORD: ${{ secrets.WISP_SIGNING_PASSWORD }}
+        run: .github/signing/import.sh
+
+      - name: Sign two different programs and compare their identity
+        run: |
+          set -euo pipefail
+          for tool in ls cat; do
+            cp "/bin/$tool" "$RUNNER_TEMP/$tool"
+            codesign --remove-signature "$RUNNER_TEMP/$tool"
+            codesign --force --options runtime -i app.dubplate.desktop -s "$APPLE_SIGNING_IDENTITY" "$RUNNER_TEMP/$tool"
+            codesign --verify --strict "$RUNNER_TEMP/$tool"
+            "$RUNNER_TEMP/$tool" /dev/null > /dev/null
+            codesign -d -r- "$RUNNER_TEMP/$tool" 2>&1 | grep designated | tee "$RUNNER_TEMP/$tool.req"
+          done
+          # macOS keeps permissions when an update has the same designated requirement.
+          diff "$RUNNER_TEMP/ls.req" "$RUNNER_TEMP/cat.req"
+          grep -q "certificate leaf" "$RUNNER_TEMP/ls.req"
+          echo "Both builds share one signing identity: permissions will carry over updates."

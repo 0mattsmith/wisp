@@ -41,6 +41,8 @@ jobs:
           - platform: windows-latest
             args: ""
     runs-on: ${{ matrix.platform }}
+    env:
+      WISP_SIGNING_CERTIFICATE: ${{ secrets.WISP_SIGNING_CERTIFICATE }}
     steps:
       - uses: actions/checkout@v4
 
@@ -67,6 +69,16 @@ jobs:
       # expect platform-specific optional packages that a lock file written on
       # one Mac may not list, and `npm ci` refuses to run when they are missing.
       - run: npm install --no-audit --no-fund
+
+      # Sign Mac builds with Wisp's own certificate, so macOS keeps permissions
+      # such as Full Disk Access across updates. Skipped until the certificate
+      # secrets exist, leaving the app unsigned as before.
+      - name: Prepare Mac code signing
+        if: matrix.platform == 'macos-latest' && env.WISP_SIGNING_CERTIFICATE != ''
+        env:
+          WISP_SIGNING_CERTIFICATE: ${{ secrets.WISP_SIGNING_CERTIFICATE }}
+          WISP_SIGNING_PASSWORD: ${{ secrets.WISP_SIGNING_PASSWORD }}
+        run: .github/signing/import.sh
 
       - uses: tauri-apps/tauri-action@v0
         env:
