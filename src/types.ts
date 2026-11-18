@@ -65,6 +65,7 @@ export interface Settings {
   hideDockIcon: boolean;
   autoUpdate: boolean;
   clipboardWatch: boolean;
+  appearance: "system" | "light" | "dark";
 }
 
 /** A browser yt-dlp does not know by name, picked under "Custom…". */

@@ -1,6 +1,7 @@
 import { AppWindow, Check, Copy, Download, FolderOpen, LoaderCircle, RefreshCw, Share, ShieldCheck } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { call, copyText, isMac, loginStartEnabled, on, openExternal, pickBrowser, pickFolder, setLoginStart } from "../api";
+import { NotLoaded, PageHeader } from "../components/Chrome";
 import { FormatPicker } from "../components/FormatPicker";
 import { bytes } from "../format";
 import { saveSettings, toast, useSettings } from "../store";
@@ -132,9 +133,9 @@ function Cookies({ settings: s }: { settings: SettingsT }) {
             report ? (
               <em className={report.ok ? "ok-text" : "warn-text"}>{report.text}</em>
             ) : isMac && (s.cookiesBrowser === "helium" || custom?.kind === "chromium") && s.cookiesBrowser !== "firefox" ? (
-              "macOS will ask once to let Dubplate use the browser’s keychain entry. Click Always Allow."
+              "macOS will ask once to let Wisp use the browser’s keychain entry. Click Always Allow."
             ) : (
-              "Makes sure Dubplate can see that you are signed in. Nothing is sent anywhere."
+              "Makes sure Wisp can see that you are signed in. Nothing is sent anywhere."
             )
           }
         >
@@ -153,7 +154,7 @@ function SendFromBrowser() {
   return (
     <>
       <Row
-        title="Send to Dubplate button"
+        title="Send to Wisp button"
         hint="A button for your browser's bookmarks bar that sends the YouTube or SoundCloud page you are on straight to your downloads."
       >
         <button
@@ -177,11 +178,11 @@ function SendFromBrowser() {
           In your browser, show the bookmarks bar ({isMac ? "Safari: View → Show Favourites Bar" : "Ctrl+Shift+B"}) and bookmark any page
           into it.
         </li>
-        <li>Edit that bookmark: name it “Send to Dubplate” and paste the copied code in place of its address.</li>
-        <li>On a YouTube or SoundCloud page, click it. The first time, the browser asks whether to open Dubplate.</li>
+        <li>Edit that bookmark: name it “Send to Wisp” and paste the copied code in place of its address.</li>
+        <li>On a YouTube or SoundCloud page, click it. The first time, the browser asks whether to open Wisp.</li>
       </ol>
       {isMac && (
-        <Row title="Share menu" hint="Adds “Send to Dubplate” to the Share menu in Safari and other apps, using a Shortcut. The Shortcuts app asks you to confirm.">
+        <Row title="Share menu" hint="Adds “Send to Wisp” to the Share menu in Safari and other apps, using a Shortcut. The Shortcuts app asks you to confirm.">
           <button
             className="soft-btn"
             disabled={adding}
@@ -284,7 +285,7 @@ function Tools() {
             hint={
               t.found ? (
                 <>
-                  {t.version ?? "Unknown version"} · {t.managed ? "managed by Dubplate" : t.path}
+                  {t.version ?? "Unknown version"} · {t.managed ? "managed by Wisp" : t.path}
                   {outdated && <em className="warn-text"> · {latest} is available</em>}
                 </>
               ) : (
@@ -312,7 +313,7 @@ function Tools() {
         );
       })}
       <p className="set-note">
-        Sites change often, and an out-of-date yt-dlp is the usual reason a download fails. A copy managed by Dubplate is kept current
+        Sites change often, and an out-of-date yt-dlp is the usual reason a download fails. A copy managed by Wisp is kept current
         automatically; one installed by Homebrew or another package manager is updated there.
       </p>
     </>
@@ -339,7 +340,7 @@ function Updates({ settings }: { settings: SettingsT }) {
 
   return (
     <>
-      <Row title="Dubplate" hint={status}>
+      <Row title="Wisp" hint={status}>
         {update.phase === "ready" ? (
           <button className="primary-btn small" onClick={applyUpdate}>
             Restart to update
@@ -357,17 +358,79 @@ function Updates({ settings }: { settings: SettingsT }) {
   );
 }
 
+const APPEARANCES: { value: "system" | "light" | "dark"; label: string }[] = [
+  { value: "system", label: "Match system" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+];
+
+/** Little window drawings, like macOS's own Appearance setting. */
+function AppearancePreview({ kind }: { kind: "system" | "light" | "dark" }) {
+  const pane = (dark: boolean) => (
+    <>
+      <rect width="64" height="44" rx="6" fill={dark ? "#1F2027" : "#FFFFFF"} />
+      <rect width="18" height="44" rx="6" fill={dark ? "#2B2C35" : "#ECEDF3"} />
+      <rect x="22" y="8" width="26" height="4" rx="2" fill={dark ? "#F5F5F7" : "#1D1D1F"} opacity="0.85" />
+      <rect x="22" y="17" width="36" height="7" rx="3.500" fill={dark ? "#30313A" : "#F2F3F7"} />
+      <rect x="22" y="28" width="36" height="7" rx="3.500" fill={dark ? "#30313A" : "#F2F3F7"} />
+      <circle cx="54" cy="20.500" r="2.500" fill="url(#ap-accent)" />
+    </>
+  );
+  return (
+    <svg viewBox="0 0 64 44" className="appearance-art" aria-hidden="true">
+      <defs>
+        <linearGradient id="ap-accent" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#9B86FF" />
+          <stop offset="1" stopColor="#4CC4FF" />
+        </linearGradient>
+        <clipPath id="ap-left">
+          <rect width="32" height="44" />
+        </clipPath>
+      </defs>
+      {kind === "system" ? (
+        <>
+          {pane(true)}
+          <g clipPath="url(#ap-left)">{pane(false)}</g>
+        </>
+      ) : (
+        pane(kind === "dark")
+      )}
+    </svg>
+  );
+}
+
 export function Settings() {
   const s = useSettings();
-  if (!s) return null;
+  if (!s) {
+    return (
+      <div className="view settings">
+        <PageHeader overline="Wisp" title="Settings" />
+        <NotLoaded />
+      </div>
+    );
+  }
 
   return (
     <div className="view settings">
-      <header className="page-head">
-        <div>
-          <h1>Settings</h1>
+      <PageHeader overline="Wisp" title="Settings" />
+
+      <section className="card">
+        <h3>Appearance</h3>
+        <div className="appearance">
+          {APPEARANCES.map(({ value, label }) => (
+            <button
+              key={value}
+              className={`appearance-option${s.appearance === value ? " on" : ""}`}
+              aria-pressed={s.appearance === value}
+              onClick={() => saveSettings({ appearance: value })}
+            >
+              <AppearancePreview kind={value} />
+              <span>{label}</span>
+            </button>
+          ))}
         </div>
-      </header>
+        <p className="set-note">Applies to every Wisp window, including the menu bar panel and the player.</p>
+      </section>
 
       <section className="card">
         <h3>Downloads</h3>

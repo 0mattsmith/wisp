@@ -371,7 +371,7 @@ async fn ogg_mode(ffmpeg: &Path) -> Ogg {
     }
 }
 
-const NO_OGG: &str = "This copy of ffmpeg cannot write OGG. Install the Dubplate-managed ffmpeg under Settings → Tools, or pick another format.";
+const NO_OGG: &str = "This copy of ffmpeg cannot write OGG. Install the Wisp-managed ffmpeg under Settings → Tools, or pick another format.";
 
 fn bitrate(quality: &str, best: &str) -> String {
     match quality {
@@ -990,7 +990,7 @@ impl Manager {
             if done > 0 && self.settings().notify {
                 use tauri_plugin_notification::NotificationExt;
                 let body = if done == 1 { "1 track is ready.".to_string() } else { format!("{done} tracks are ready.") };
-                let _ = self.app.notification().builder().title("Dubplate").body(body).show();
+                let _ = self.app.notification().builder().title("Wisp").body(body).show();
             }
         }
     }
@@ -1156,7 +1156,7 @@ impl Manager {
         if settings.sponsorblock {
             cmd.args(["--sponsorblock-remove", "music_offtopic"]);
         }
-        // Kept until yt-dlp is done: a cookie file Dubplate wrote is deleted with it.
+        // Kept until yt-dlp is done: a cookie file Wisp wrote is deleted with it.
         let cookie_args = {
             let (s, scratch) = (settings.clone(), work.to_path_buf());
             tokio::task::spawn_blocking(move || cookies::prepare(&s, &scratch))
@@ -1412,7 +1412,7 @@ impl Manager {
 
         let (tag_path, tag_meta, tag_cover) = (file.clone(), final_meta.clone(), cover.clone());
         let tagged = tokio::task::spawn_blocking(move || {
-            let thumb = tag_cover.as_deref().and_then(|c| tags::data_url(c, 112));
+            let thumb = tag_cover.as_deref().and_then(|c| tags::data_url(c, 256));
             let change = tag_cover.map(tags::CoverChange::Set).unwrap_or(tags::CoverChange::Keep);
             (tags::write(&tag_path, &tag_meta, change, true), thumb)
         })
@@ -1472,7 +1472,7 @@ impl Manager {
         let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "converted".into());
         let ext = job.format.as_str();
         let dest = unique_path(&dir, &stem, ext, None);
-        let tmp = dir.join(format!(".{stem}.dubplate-{id}.{ext}"));
+        let tmp = dir.join(format!(".{stem}.wisp-{id}.{ext}"));
 
         let mut cmd = tools::command(&ffmpeg);
         cmd.args(["-hide_banner", "-nostdin", "-y", "-i"]).arg(&src);
@@ -1528,7 +1528,7 @@ impl Manager {
         // ffmpeg carries text tags across; lofty makes sure the cover follows too.
         let (tag_path, tag_meta) = (dest.clone(), src_meta.clone());
         let (tag_result, thumb) = tokio::task::spawn_blocking(move || {
-            let thumb = src_cover.as_deref().and_then(|c| tags::data_url(c, 112));
+            let thumb = src_cover.as_deref().and_then(|c| tags::data_url(c, 256));
             let change = src_cover.map(tags::CoverChange::Set).unwrap_or(tags::CoverChange::Keep);
             (tags::write(&tag_path, &tag_meta, change, false), thumb)
         })

@@ -11,9 +11,9 @@ use std::time::{Duration, Instant};
 /// Sent as the User-Agent. MusicBrainz and Discogs both ask for an app name,
 /// version and a contact URL; point this at the project's home page.
 pub const USER_AGENT: &str = concat!(
-    "Dubplate/",
+    "Wisp/",
     env!("CARGO_PKG_VERSION"),
-    " ( https://github.com/0mattsmith/dubplate )"
+    " ( https://github.com/0mattsmith/wisp )"
 );
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]

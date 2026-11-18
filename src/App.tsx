@@ -1,10 +1,12 @@
-import { ArrowDownToLine, Library as LibraryIcon, Music, Pause, Play, RefreshCw, Settings as SettingsIcon, TriangleAlert, Upload } from "lucide-react";
+import { ArrowDownToLine, LibraryBig, Music, Pause, Play, RefreshCw, Settings as SettingsIcon, TriangleAlert, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
 import { call, isMac, on, onFileDrop } from "./api";
+import { ThemeButton } from "./components/Chrome";
 import { Logo, Wordmark } from "./components/Logo";
 import { TagEditor } from "./components/TagEditor";
 import { showPlayer, togglePlayback, usePlayerState } from "./playerControl";
 import { toast, useJobs, useSettings, useToasts } from "./store";
+import { bytes, speed } from "./format";
 import { isActive, type Job, type ToolStatus } from "./types";
 import { applyUpdate, checkForUpdate, useUpdate } from "./updater";
 import { Downloads } from "./views/Downloads";
@@ -29,6 +31,14 @@ export function App() {
 
   const activeCount = jobs.filter((j) => isActive(j) || j.status === "queued").length;
   const libraryCount = jobs.filter((j) => j.status === "done" && j.output).length;
+
+  // The menu bar panel and tray menu can open a particular page.
+  useEffect(() => {
+    const off = on<string>("navigate", (to) => {
+      if (to === "downloads" || to === "library" || to === "settings") setView(to);
+    });
+    return () => void off.then((f) => f());
+  }, []);
 
   // Dropped files: convert them from Downloads, or just add them from Library.
   useEffect(() => {
@@ -64,27 +74,41 @@ export function App() {
     return () => clearInterval(timer);
   }, [autoUpdate]);
 
-  const nav: { id: View; label: string; icon: typeof ArrowDownToLine; badge?: number }[] = [
-    { id: "downloads", label: "Downloads", icon: ArrowDownToLine, badge: activeCount || undefined },
-    { id: "library", label: "Library", icon: LibraryIcon, badge: libraryCount || undefined },
-    { id: "settings", label: "Settings", icon: SettingsIcon },
-  ];
+  const item = (id: View, label: string, Icon: typeof ArrowDownToLine, badge?: number, live = false) => (
+    <button key={id} className={`side-item${view === id ? " on" : ""}`} onClick={() => setView(id)}>
+      <Icon size={16} />
+      <span>{label}</span>
+      {badge ? <em className={live ? "live" : ""}>{badge}</em> : null}
+    </button>
+  );
+
+  // The Finder-style line at the foot of the window.
+  const downloading = jobs.filter((j) => j.status === "downloading");
+  const totalSpeed = downloading.reduce((sum, j) => sum + (j.speed ?? 0), 0);
+  const librarySize = jobs.filter((j) => j.status === "done" && j.output).reduce((sum, j) => sum + (j.size ?? 0), 0);
+  const status =
+    view === "library"
+      ? `${libraryCount} track${libraryCount === 1 ? "" : "s"}${librarySize ? ` · ${bytes(librarySize)}` : ""}`
+      : view === "downloads"
+        ? activeCount
+          ? `${activeCount} in progress${totalSpeed ? ` · ${speed(totalSpeed)}` : ""}`
+          : "Nothing downloading"
+        : "Wisp";
 
   return (
     <div className={`app${isMac ? " mac" : ""}`}>
       <aside className="sidebar" data-tauri-drag-region>
+        <div className="side-top" data-tauri-drag-region />
         <div className="brand" data-tauri-drag-region>
-          <Logo size={30} />
+          <Logo size={24} />
           <Wordmark />
         </div>
         <nav>
-          {nav.map(({ id, label, icon: Icon, badge }) => (
-            <button key={id} className={view === id ? "on" : ""} onClick={() => setView(id)}>
-              <Icon size={17} />
-              <span>{label}</span>
-              {badge ? <em className={id === "downloads" ? "live" : ""}>{badge}</em> : null}
-            </button>
-          ))}
+          <div className="side-section">Music</div>
+          {item("downloads", "Downloads", ArrowDownToLine, activeCount || undefined, true)}
+          {item("library", "Library", LibraryBig, libraryCount || undefined)}
+          <div className="side-section">Wisp</div>
+          {item("settings", "Settings", SettingsIcon)}
         </nav>
         <div className="spacer" data-tauri-drag-region />
 
@@ -143,16 +167,19 @@ export function App() {
             </button>
           </div>
         )}
-        <p className="tagline">Download · Convert · Tag</p>
+        <div className="side-foot">
+          <span className="tagline">Download · Convert · Tag</span>
+          <ThemeButton className="icon-btn" />
+        </div>
       </aside>
 
-      <main>
-        <div className="titlebar" data-tauri-drag-region />
+      <main className="content">
         <div className="scroll">
           {view === "downloads" && <Downloads onEdit={setEditing} />}
           {view === "library" && <Library onEdit={setEditing} />}
           {view === "settings" && <Settings />}
         </div>
+        <footer className="statusbar">{status}</footer>
       </main>
 
       {dropping && (

@@ -1,7 +1,9 @@
-//! `dubplate://` links, so a browser button or the Share menu can hand the app
-//! a page to download:
+//! `wisp://` links, so a browser button or the Share menu can hand the app a
+//! page to download:
 //!
-//!   dubplate://add?url=<the page's address, URL-encoded>[&format=flac]
+//!   wisp://add?url=<the page's address, URL-encoded>[&format=flac]
+//!
+//! Links made before the app was renamed (`dubplate://…`) still work.
 //!
 //! Any web page can try to open a link like this, so only YouTube and
 //! SoundCloud pages are accepted, a link can add at most a handful of items,
@@ -11,7 +13,9 @@ use crate::jobs::{self, Manager};
 use std::sync::Arc;
 use tauri::{AppHandle, Manager as _, Url};
 
-pub const SCHEME: &str = "dubplate";
+pub const SCHEME: &str = "wisp";
+/// The app's name before it became Wisp; bookmarks made then still use it.
+pub const OLD_SCHEME: &str = "dubplate";
 const MAX_PER_LINK: usize = 5;
 
 #[derive(Debug, PartialEq)]
@@ -21,13 +25,13 @@ pub struct AddRequest {
 }
 
 pub fn parse(link: &Url) -> Result<AddRequest, String> {
-    if link.scheme() != SCHEME {
-        return Err("Not a Dubplate link.".into());
+    if link.scheme() != SCHEME && link.scheme() != OLD_SCHEME {
+        return Err("Not a Wisp link.".into());
     }
-    // "dubplate://add?url=…" puts "add" in the host; "dubplate:add?url=…" in the path.
+    // "wisp://add?url=…" puts "add" in the host; "wisp:add?url=…" in the path.
     let action = link.host_str().unwrap_or_else(|| link.path()).trim_matches('/');
     if action != "add" {
-        return Err(format!("Dubplate does not know what to do with “{action}”."));
+        return Err(format!("Wisp does not know what to do with “{action}”."));
     }
 
     let mut urls = Vec::new();
@@ -38,10 +42,10 @@ pub fn parse(link: &Url) -> Result<AddRequest, String> {
                 let candidate = value.trim().to_string();
                 let parsed = Url::parse(&candidate).map_err(|_| "That is not a valid web address.".to_string())?;
                 if !matches!(parsed.scheme(), "http" | "https") {
-                    return Err("Only web addresses can be sent to Dubplate.".into());
+                    return Err("Only web addresses can be sent to Wisp.".into());
                 }
                 if jobs::site_of(&candidate) == "web" {
-                    return Err("Dubplate only accepts YouTube and SoundCloud links.".into());
+                    return Err("Wisp only accepts YouTube and SoundCloud links.".into());
                 }
                 if !urls.contains(&candidate) {
                     urls.push(candidate);
@@ -62,7 +66,7 @@ pub fn parse(link: &Url) -> Result<AddRequest, String> {
 
 fn notify(app: &AppHandle, body: &str) {
     use tauri_plugin_notification::NotificationExt;
-    let _ = app.notification().builder().title("Dubplate").body(body).show();
+    let _ = app.notification().builder().title("Wisp").body(body).show();
 }
 
 /// Queue whatever the links ask for, and say what happened.
@@ -90,8 +94,8 @@ pub fn bookmarklet() -> String {
     format!("javascript:(()=>{{location.href='{SCHEME}://add?url='+encodeURIComponent(location.href)}})()")
 }
 
-/// The Shortcut that puts "Send to Dubplate" in the Share menu: it takes the
-/// shared web page, URL-encodes its address and opens a dubplate:// link.
+/// The Shortcut that puts "Send to Wisp" in the Share menu: it takes the
+/// shared web page, URL-encodes its address and opens a wisp:// link.
 const SHARE_SHORTCUT: &str = include_str!("../resources/share-shortcut.plist");
 
 /// Build the Share-menu Shortcut, sign it on this Mac, and hand it to the
@@ -104,7 +108,7 @@ pub fn add_share_shortcut(work_dir: &std::path::Path) -> Result<(), String> {
     let source = dir.join("share.plist");
     let unsigned = dir.join("unsigned.shortcut");
     // The file name becomes the Shortcut's name.
-    let signed = dir.join("Send to Dubplate.shortcut");
+    let signed = dir.join("Send to Wisp.shortcut");
     let _ = std::fs::remove_file(&signed);
     std::fs::write(&source, SHARE_SHORTCUT).map_err(|e| e.to_string())?;
 
@@ -143,29 +147,31 @@ mod tests {
 
     #[test]
     fn accepts_music_links() {
-        let r = p("dubplate://add?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DjNQXAC9IVRw%26t%3D3").unwrap();
+        let r = p("wisp://add?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DjNQXAC9IVRw%26t%3D3").unwrap();
         assert_eq!(r.urls, vec!["https://www.youtube.com/watch?v=jNQXAC9IVRw&t=3"]);
         assert_eq!(r.format, None);
-        let r = p("dubplate://add?url=https://soundcloud.com/a/b&format=flac").unwrap();
+        let r = p("wisp://add?url=https://soundcloud.com/a/b&format=flac").unwrap();
         assert_eq!(r.urls, vec!["https://soundcloud.com/a/b"]);
         assert_eq!(r.format.as_deref(), Some("flac"));
         // Unknown formats are ignored rather than refused.
-        assert_eq!(p("dubplate://add?url=https://youtu.be/x&format=exe").unwrap().format, None);
-        assert!(p("dubplate:add?url=https://youtu.be/x").is_ok());
-        assert!(p("dubplate://add/?url=https://youtu.be/x").is_ok());
+        assert_eq!(p("wisp://add?url=https://youtu.be/x&format=exe").unwrap().format, None);
+        assert!(p("wisp:add?url=https://youtu.be/x").is_ok());
+        // Bookmarks made before the rename.
+        assert!(p("dubplate://add?url=https://youtu.be/x").is_ok());
+        assert!(p("wisp://add/?url=https://youtu.be/x").is_ok());
     }
 
     #[test]
     fn refuses_anything_else() {
-        assert!(p("dubplate://add?url=https://example.com/file.mp3").is_err());
-        assert!(p("dubplate://add?url=file:///etc/passwd").is_err());
-        assert!(p("dubplate://add?url=javascript:alert(1)").is_err());
-        assert!(p("dubplate://add?url=https://youtube.com.evil.example/watch").is_err());
-        assert!(p("dubplate://add").is_err());
-        assert!(p("dubplate://delete?url=https://youtu.be/x").is_err());
+        assert!(p("wisp://add?url=https://example.com/file.mp3").is_err());
+        assert!(p("wisp://add?url=file:///etc/passwd").is_err());
+        assert!(p("wisp://add?url=javascript:alert(1)").is_err());
+        assert!(p("wisp://add?url=https://youtube.com.evil.example/watch").is_err());
+        assert!(p("wisp://add").is_err());
+        assert!(p("wisp://delete?url=https://youtu.be/x").is_err());
         assert!(p("https://youtu.be/x").is_err());
         let many: String = (0..6).map(|i| format!("url=https://youtu.be/{i}&")).collect();
-        assert!(p(&format!("dubplate://add?{many}")).is_err());
+        assert!(p(&format!("wisp://add?{many}")).is_err());
     }
 
     #[test]
@@ -181,6 +187,6 @@ mod tests {
     fn bookmarklet_builds_a_parseable_link() {
         let code = bookmarklet();
         assert!(code.starts_with("javascript:"));
-        assert!(code.contains("dubplate://add?url="));
+        assert!(code.contains("wisp://add?url="));
     }
 }

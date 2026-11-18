@@ -1,12 +1,13 @@
-import { ArrowDownToLine, ClipboardPaste, ExternalLink, Pause, Play, Power } from "lucide-react";
+import { AppWindow, ArrowDown, ClipboardPaste, LibraryBig, ListMusic, Pause, Play, Power, Search, Settings as SettingsIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { call, readClipboard } from "./api";
+import { ThemeButton } from "./components/Chrome";
 import { JobRow } from "./components/JobRow";
 import { Logo, Wordmark } from "./components/Logo";
 import { extractLinks } from "./format";
-import { addLinks, toast, useJobs, useSettings, useToasts } from "./store";
+import { showPlayer } from "./playerControl";
+import { addLinks, saveSettings, toast, useJobs, useSettings, useToasts } from "./store";
 import { FORMATS, isActive } from "./types";
-import { saveSettings } from "./store";
 
 /** The compact window that drops down from the menu bar / tray icon. */
 export function Panel() {
@@ -19,35 +20,38 @@ export function Panel() {
   const shown = list.slice(0, 6);
   const running = list.some((j) => isActive(j) || j.status === "queued");
   const paused = list.some((j) => j.status === "paused");
+  const looksLikeSearch = text.trim() !== "" && extractLinks(text).length === 0;
 
   const submit = async (raw: string) => {
     const links = extractLinks(raw);
-    if (!links.length) return toast("That is not a link", "error");
+    if (!links.length) {
+      // Searching needs room for results: hand it to the main window.
+      if (raw.trim()) {
+        await call("open_main", { view: "downloads" });
+        return toast("Search from the Downloads page in the main window");
+      }
+      return toast("That is not a link", "error");
+    }
     if ((await addLinks(links, settings?.format, settings?.quality)) > 0) setText("");
   };
 
   return (
     <div className="panel">
       <header className="panel-head">
-        <Logo size={24} />
+        <Logo size={22} />
         <Wordmark />
         <div className="spacer" />
-        <button className="soft-btn" onClick={() => call("open_main")}>
-          <ExternalLink size={13} /> Open app
+        <ThemeButton className="round-btn" />
+        <button className="round-btn" title="Settings" aria-label="Settings" onClick={() => call("open_main", { view: "settings" })}>
+          <SettingsIcon size={15} />
         </button>
-        {running ? (
-          <button className="soft-btn" onClick={() => call("pause_all")}>
-            <Pause size={13} /> Pause all
-          </button>
-        ) : paused ? (
-          <button className="soft-btn" onClick={() => call("resume_all")}>
-            <Play size={13} /> Resume
-          </button>
-        ) : null}
+        <button className="round-btn" title="Open Wisp" aria-label="Open Wisp" onClick={() => call("open_main")}>
+          <AppWindow size={15} />
+        </button>
       </header>
 
       <div className="panel-add">
-        <div className="url-box small">
+        <div className="composer pill">
           <input
             value={text}
             placeholder="Paste a YouTube or SoundCloud link"
@@ -65,8 +69,8 @@ export function Panel() {
           >
             <ClipboardPaste size={15} />
           </button>
-          <button className="primary-btn square" title="Download" onClick={() => submit(text)}>
-            <ArrowDownToLine size={16} />
+          <button className="send-btn" title={looksLikeSearch ? "Search" : "Download"} onClick={() => submit(text)}>
+            {looksLikeSearch ? <Search size={15} strokeWidth={2.4} /> : <ArrowDown size={16} strokeWidth={2.6} />}
           </button>
         </div>
         {settings && (
@@ -83,25 +87,41 @@ export function Panel() {
       <div className="panel-list">
         {shown.length === 0 ? (
           <div className="empty small">
-            <p>No downloads yet.</p>
+            <p>No downloads yet</p>
             <span>Paste a link to start one.</span>
           </div>
         ) : (
           shown.map((job) => <JobRow key={job.id} job={job} compact />)
         )}
-      </div>
-
-      <footer className="panel-foot">
-        {list.length > shown.length ? (
-          <button className="link-btn" onClick={() => call("open_main")}>
+        {list.length > shown.length && (
+          <button className="link-btn more" onClick={() => call("open_main", { view: "downloads" })}>
             Show {list.length - shown.length} more
           </button>
-        ) : (
-          <span />
         )}
-        <button className="link-btn quiet" onClick={() => call("quit_app")} title="Quit Dubplate">
-          <Power size={12} /> Quit
-        </button>
+      </div>
+
+      <footer className="panel-dock">
+        <div className="dock">
+          {running ? (
+            <button className="round-btn" title="Pause all" aria-label="Pause all" onClick={() => call("pause_all")}>
+              <Pause size={15} />
+            </button>
+          ) : (
+            <button className="round-btn" title="Resume all" aria-label="Resume all" disabled={!paused} onClick={() => call("resume_all")}>
+              <Play size={15} />
+            </button>
+          )}
+          <button className="round-btn" title="Show the player" aria-label="Show the player" onClick={showPlayer}>
+            <ListMusic size={15} />
+          </button>
+          <button className="round-btn" title="Library" aria-label="Library" onClick={() => call("open_main", { view: "library" })}>
+            <LibraryBig size={15} />
+          </button>
+          <span className="dock-grip" aria-hidden="true" />
+          <button className="round-btn" title="Quit Wisp" aria-label="Quit Wisp" onClick={() => call("quit_app")}>
+            <Power size={15} />
+          </button>
+        </div>
       </footer>
 
       {toasts.length > 0 && <div className={`panel-toast ${toasts[toasts.length - 1].tone}`}>{toasts[toasts.length - 1].text}</div>}

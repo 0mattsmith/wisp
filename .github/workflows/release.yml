@@ -86,7 +86,7 @@ jobs:
           # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: Dubplate ${{ github.ref_name }}
+          releaseName: Wisp ${{ github.ref_name }}
           releaseBody: ${{ needs.notes.outputs.body }}
           # Kept as a draft until every platform has built, so nobody is offered a half-finished update.
           releaseDraft: true

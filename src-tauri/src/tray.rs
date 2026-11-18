@@ -51,6 +51,15 @@ pub fn hide_player(app: &AppHandle) {
     }
 }
 
+/// Show the main window on a page: "downloads", "library" or "settings".
+pub fn open_view(app: &AppHandle, view: Option<&str>) {
+    show_main(app);
+    if let Some(view) = view {
+        use tauri::Emitter;
+        let _ = app.emit_to("main", "navigate", view);
+    }
+}
+
 pub fn hide_panel(app: &AppHandle, from_blur: bool) {
     if let Some(win) = app.get_webview_window("panel") {
         if win.is_visible().unwrap_or(false) {
@@ -96,17 +105,19 @@ fn toggle_panel(app: &AppHandle, rect: Rect) {
 }
 
 pub fn setup(app: &AppHandle) -> tauri::Result<()> {
-    let open = MenuItem::with_id(app, "open", "Open Dubplate", true, None::<&str>)?;
+    let open = MenuItem::with_id(app, "open", "Open Wisp", true, None::<&str>)?;
     let paste = MenuItem::with_id(app, "paste", "Download Link from Clipboard", true, None::<&str>)?;
     let player = MenuItem::with_id(app, "player", "Show Player", true, None::<&str>)?;
+    let settings = MenuItem::with_id(app, "settings", "Settings…", true, Some("CmdOrCtrl+,"))?;
     let pause = MenuItem::with_id(app, "pause_all", "Pause All", true, None::<&str>)?;
     let resume = MenuItem::with_id(app, "resume_all", "Resume All", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Dubplate", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit Wisp", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
         &[
             &open,
             &player,
+            &settings,
             &paste,
             &PredefinedMenuItem::separator(app)?,
             &pause,
@@ -116,8 +127,8 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         ],
     )?;
 
-    let mut builder = TrayIconBuilder::with_id("dubplate")
-        .tooltip("Dubplate")
+    let mut builder = TrayIconBuilder::with_id("wisp")
+        .tooltip("Wisp")
         .menu(&menu)
         // Linux trays do not report clicks, so the menu is the only entry point there.
         .show_menu_on_left_click(cfg!(target_os = "linux"))
@@ -126,6 +137,7 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
             match event.id().as_ref() {
                 "open" => show_main(app),
                 "player" => show_player(app),
+                "settings" => open_view(app, Some("settings")),
                 "paste" => {
                     use tauri_plugin_clipboard_manager::ClipboardExt;
                     if let Ok(text) = app.clipboard().read_text() {

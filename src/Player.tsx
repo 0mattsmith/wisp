@@ -238,7 +238,7 @@ export function Player() {
               }}
             />
           </div>
-          <button className="player-chip" title="Open Dubplate" onClick={() => call("open_main")}>
+          <button className="player-chip" title="Open Wisp" onClick={() => call("open_main")}>
             <ExternalLink size={14} />
           </button>
         </div>

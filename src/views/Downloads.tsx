@@ -1,6 +1,7 @@
-import { ArrowDownToLine, Check, ClipboardPaste, FileAudio, Link2, LoaderCircle, Music, Pause, Play, Search, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowDownToLine, Check, ClipboardPaste, FileAudio, LoaderCircle, Music, Pause, Play, Search, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { call, pickFiles, readClipboard } from "../api";
+import { NotLoaded, PageHeader, ToolButton } from "../components/Chrome";
 import { FormatPicker } from "../components/FormatPicker";
 import { JobRow } from "../components/JobRow";
 import { clock, extractLinks, SUPPORTED_LINK } from "../format";
@@ -49,7 +50,14 @@ export function Downloads({ onEdit }: { onEdit: (job: Job) => void }) {
     return () => window.removeEventListener("focus", look);
   }, [settings?.clipboardWatch]);
 
-  if (!settings) return null;
+  if (!settings) {
+    return (
+      <div className="view">
+        <PageHeader overline="Music" title="Downloads" />
+        <NotLoaded />
+      </div>
+    );
+  }
 
   const runSearch = async (query: string, site: SearchState["site"]) => {
     const run = ++searchRun.current;
@@ -89,19 +97,38 @@ export function Downloads({ onEdit }: { onEdit: (job: Job) => void }) {
     if (paths.length) await call("add_files", { paths, convert: true, format: settings.format, quality: settings.quality });
   };
 
+  const looksLikeSearch = text.trim() !== "" && extractLinks(text).length === 0;
+
   return (
     <div className="view">
-      <section className="hero">
-        <h1>Paste a link. Get the track.</h1>
-        <p className="hero-sub">YouTube and SoundCloud links, playlists and sets, or just type a song name to search.</p>
+      <PageHeader overline="Music" title="Downloads">
+        <ToolButton label="Convert audio files from your computer" onClick={convertFiles}>
+          <FileAudio size={16} />
+        </ToolButton>
+        {activeCount > 0 && (
+          <ToolButton label="Pause all" onClick={() => call("pause_all")}>
+            <Pause size={16} />
+          </ToolButton>
+        )}
+        {pausedCount > 0 && (
+          <ToolButton label="Resume all" onClick={() => call("resume_all")}>
+            <Play size={16} />
+          </ToolButton>
+        )}
+        {finishedCount > 0 && (
+          <ToolButton label="Clear finished (they stay in your Library)" onClick={() => call("clear_finished")}>
+            <Trash2 size={16} />
+          </ToolButton>
+        )}
+      </PageHeader>
 
-        <div className="url-box">
-          <Link2 size={18} className="url-icon" />
+      <section className="composer-card">
+        <div className="composer">
           <textarea
             ref={input}
             rows={1}
             value={text}
-            placeholder="Paste a YouTube or SoundCloud link, or type a song name"
+            placeholder="Paste a YouTube or SoundCloud link, or search for a song…"
             spellCheck={false}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
@@ -130,34 +157,24 @@ export function Downloads({ onEdit }: { onEdit: (job: Job) => void }) {
           >
             <ClipboardPaste size={16} />
           </button>
-        </div>
-
-        {suggestion && !text && (
-          <button className="suggestion" onClick={() => submit(suggestion)}>
-            <ClipboardPaste size={13} />
-            <span>Download copied link</span>
-            <em>{suggestion.replace(/^https?:\/\/(www\.)?/, "")}</em>
+          <button className="send-btn" title={looksLikeSearch ? "Search" : "Download"} onClick={() => submit()}>
+            {looksLikeSearch ? <Search size={17} strokeWidth={2.4} /> : <ArrowDown size={18} strokeWidth={2.6} />}
           </button>
-        )}
-
-        <div className="hero-controls">
+        </div>
+        <div className="composer-foot">
           <FormatPicker
             format={settings.format}
             quality={settings.quality}
             onFormat={(format) => saveSettings({ format })}
             onQuality={(quality) => saveSettings({ quality })}
           />
-          <button className="primary-btn" onClick={() => submit()}>
-            {text.trim() && extractLinks(text).length === 0 ? (
-              <>
-                <Search size={17} /> Search
-              </>
-            ) : (
-              <>
-                <ArrowDownToLine size={17} /> Download
-              </>
-            )}
-          </button>
+          {suggestion && !text && (
+            <button className="suggestion" onClick={() => submit(suggestion)}>
+              <ClipboardPaste size={13} />
+              <span>Download copied link</span>
+              <em>{suggestion.replace(/^https?:\/\/(www\.)?/, "")}</em>
+            </button>
+          )}
         </div>
 
         {search && (
@@ -224,37 +241,15 @@ export function Downloads({ onEdit }: { onEdit: (job: Job) => void }) {
       </section>
 
       <section className="queue">
-        <header className="section-head">
-          <h2>
-            Queue
-            {activeCount > 0 && <span className="count">{activeCount} in progress</span>}
-          </h2>
-          <div className="section-actions">
-            <button className="soft-btn" onClick={convertFiles} title="Convert audio files from your computer">
-              <FileAudio size={14} /> Convert files
-            </button>
-            {activeCount > 0 && (
-              <button className="soft-btn" onClick={() => call("pause_all")}>
-                <Pause size={14} /> Pause all
-              </button>
-            )}
-            {pausedCount > 0 && (
-              <button className="soft-btn" onClick={() => call("resume_all")}>
-                <Play size={14} /> Resume all
-              </button>
-            )}
-            {finishedCount > 0 && (
-              <button className="soft-btn" onClick={() => call("clear_finished")} title="Finished tracks stay in your Library">
-                <Trash2 size={14} /> Clear finished
-              </button>
-            )}
-          </div>
-        </header>
+        <h2 className="group-title">
+          Queue
+          {activeCount > 0 && <span className="count">{activeCount} in progress</span>}
+        </h2>
 
         {queue.length === 0 ? (
           <div className="empty">
             <ArrowDownToLine size={22} />
-            <p>Nothing queued yet.</p>
+            <p>Nothing queued yet</p>
             <span>Paste a link above, or drop audio files here to convert them.</span>
           </div>
         ) : (

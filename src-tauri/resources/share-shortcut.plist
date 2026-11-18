@@ -38,10 +38,10 @@
         <dict>
           <key>Value</key>
           <dict>
-            <key>string</key><string>dubplate://add?url=&#xFFFC;</string>
+            <key>string</key><string>wisp://add?url=&#xFFFC;</string>
             <key>attachmentsByRange</key>
             <dict>
-              <key>{19, 1}</key>
+              <key>{15, 1}</key>
               <dict>
                 <key>OutputName</key><string>URL Encoded Text</string>
                 <key>OutputUUID</key><string>8C1B5D2E-4F7A-4E0B-9C3D-1A2B3C4D5E01</string>

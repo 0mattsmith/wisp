@@ -35,6 +35,8 @@ pub struct Settings {
     pub hide_dock_icon: bool,
     pub auto_update: bool,
     pub clipboard_watch: bool,
+    /// "system", "light" or "dark"
+    pub appearance: String,
 }
 
 impl Default for Settings {
@@ -62,6 +64,7 @@ impl Default for Settings {
             hide_dock_icon: false,
             auto_update: true,
             clipboard_watch: true,
+            appearance: "system".into(),
         }
     }
 }
@@ -87,6 +90,9 @@ impl Settings {
             self.quality = "best".into();
         }
         self.max_concurrent = self.max_concurrent.clamp(1, 8);
+        if !["system", "light", "dark"].contains(&self.appearance.as_str()) {
+            self.appearance = "system".into();
+        }
         let cookies = self.cookies_browser.as_str();
         if !(cookies.is_empty() || cookies == "helium" || cookies == "custom" || crate::cookies::BUILT_IN.contains(&cookies)) {
             self.cookies_browser.clear();

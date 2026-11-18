@@ -6,7 +6,7 @@
 //! by profile folder, since their cookies are stored unencrypted. Chromium-
 //! family browsers it does not know (Helium, Arc, Thorium…) keep their cookies
 //! encrypted with a key in the system keychain under a name yt-dlp cannot
-//! guess, so on macOS Dubplate unlocks them itself and gives yt-dlp a private
+//! guess, so on macOS Wisp unlocks them itself and gives yt-dlp a private
 //! cookie file holding only the YouTube, Google and SoundCloud cookies. The
 //! file is deleted as soon as the download that needed it ends.
 
@@ -281,7 +281,7 @@ fn wanted_domain(host: &str) -> bool {
     DOMAINS.iter().any(|d| host == *d || host.ends_with(&format!(".{d}")))
 }
 
-/// Read and unlock a Chromium browser's cookies for the sites Dubplate uses.
+/// Read and unlock a Chromium browser's cookies for the sites Wisp uses.
 #[cfg(target_os = "macos")]
 fn read_chromium(browser: &CustomBrowser, scratch: &Path) -> Result<Vec<Cookie>, String> {
     let label = &browser.label;

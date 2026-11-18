@@ -202,11 +202,11 @@ mod tests {
 
     /// Round-trips tags and artwork through every output format. Needs sample
     /// files, so it only runs when pointed at a folder of them:
-    /// `DUBPLATE_TAG_SAMPLES=/path cargo test tag_roundtrip -- --ignored`
+    /// `WISP_TAG_SAMPLES=/path cargo test tag_roundtrip -- --ignored`
     #[test]
     #[ignore]
     fn tag_roundtrip() {
-        let dir = std::env::var("DUBPLATE_TAG_SAMPLES").expect("set DUBPLATE_TAG_SAMPLES");
+        let dir = std::env::var("WISP_TAG_SAMPLES").expect("set WISP_TAG_SAMPLES");
         let cover = {
             let img = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(640, 360, image::Rgb([200, 60, 160])));
             let mut png = Vec::new();

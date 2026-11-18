@@ -159,7 +159,7 @@ async fn write_tags(
         let (change, thumb) = match raw {
             Some(bytes) => {
                 let jpeg = tags::prepare_cover(&bytes, square, 1400)?;
-                let thumb = tags::data_url(&jpeg, 112);
+                let thumb = tags::data_url(&jpeg, 256);
                 (tags::CoverChange::Set(jpeg), Some(thumb))
             }
             None if remove => (tags::CoverChange::Remove, Some(None)),
@@ -240,10 +240,11 @@ async fn ytdlp_latest(mgr: Mgr<'_>) -> Result<Option<String>, String> {
 
 // ------------------------------------------------------------------- windows
 
+/// Bring the main window forward, optionally on a particular page.
 #[tauri::command]
-fn open_main(app: AppHandle) {
+fn open_main(app: AppHandle, view: Option<String>) {
     tray::hide_panel(&app, false);
-    tray::show_main(&app);
+    tray::open_view(&app, view.as_deref());
 }
 
 #[tauri::command]
@@ -348,13 +349,13 @@ async fn check_cookies(mgr: Mgr<'_>) -> Result<String, String> {
     cookies::check(&mgr.settings(), &mgr.dirs.bin, &mgr.dirs.work).await
 }
 
-/// The bookmark code for the "Send to Dubplate" browser button.
+/// The bookmark code for the "Send to Wisp" browser button.
 #[tauri::command]
 fn bookmarklet() -> String {
     links::bookmarklet()
 }
 
-/// Put "Send to Dubplate" in the macOS Share menu.
+/// Put "Send to Wisp" in the macOS Share menu.
 #[tauri::command]
 async fn add_share_shortcut(app: AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -384,13 +385,14 @@ pub fn run() {
         // A development build pointed at its own scratch folder may run
         // alongside the installed app; otherwise a second launch just
         // brings the first one forward.
-        let scratch_run = cfg!(debug_assertions) && std::env::var_os("DUBPLATE_DEV_DIR").is_some();
+        let scratch_run = cfg!(debug_assertions) && std::env::var_os("WISP_DEV_DIR").is_some();
         if !scratch_run {
             builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-                // A dubplate:// link opened while the app runs (Windows and Linux start a
+                // A wisp:// link opened while the app runs (Windows and Linux start a
                 // second copy to deliver it) is handled by the deep-link plugin; anything
                 // else, such as opening the app again, brings the window forward.
-                if !args.iter().any(|a| a.starts_with(&format!("{}:", links::SCHEME))) {
+                let is_link = |a: &String| [links::SCHEME, links::OLD_SCHEME].iter().any(|s| a.starts_with(&format!("{s}:")));
+                if !args.iter().any(is_link) {
                     tray::show_main(app);
                 }
             }));
@@ -422,7 +424,7 @@ pub fn run() {
             // Development builds can be pointed at a throwaway folder so that
             // testing never touches the real library or Music folder.
             #[cfg(debug_assertions)]
-            let (data, cache, music) = match std::env::var_os("DUBPLATE_DEV_DIR").map(PathBuf::from) {
+            let (data, cache, music) = match std::env::var_os("WISP_DEV_DIR").map(PathBuf::from) {
                 Some(dev) => (dev.join("data"), dev.join("cache"), dev.join("music")),
                 None => (data, cache, music),
             };
@@ -434,11 +436,11 @@ pub fn run() {
             };
             // Leftovers from a crash; paused jobs restart cleanly without them.
             let _ = std::fs::remove_dir_all(&dirs.work);
-            let mgr = Arc::new(Manager::new(handle.clone(), dirs, music.join("Dubplate")));
+            let mgr = Arc::new(Manager::new(handle.clone(), dirs, music.join("Wisp")));
             apply_dock(&handle, &mgr.settings());
             mgr.start_background();
             #[cfg(debug_assertions)]
-            if let Ok(items) = std::env::var("DUBPLATE_DEV_ADD") {
+            if let Ok(items) = std::env::var("WISP_DEV_ADD") {
                 // Links are queued for download, file paths for conversion.
                 let (files, urls): (Vec<String>, Vec<String>) =
                     items.split_whitespace().map(String::from).partition(|i| i.starts_with('/'));
@@ -450,7 +452,7 @@ pub fn run() {
             app.manage(PlayRequest::default());
             tray::setup(&handle)?;
 
-            // dubplate:// links from the browser button or the Share menu.
+            // wisp:// links from the browser button or the Share menu.
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
                 // Installers register the link type; this covers an AppImage that was
@@ -465,7 +467,7 @@ pub fn run() {
                 }
             }
             #[cfg(debug_assertions)]
-            if let Ok(link) = std::env::var("DUBPLATE_DEV_LINK") {
+            if let Ok(link) = std::env::var("WISP_DEV_LINK") {
                 if let Ok(url) = tauri::Url::parse(&link) {
                     links::handle(&handle, vec![url]);
                 }
@@ -473,7 +475,7 @@ pub fn run() {
             // Development aid: start the first library track playing, silently, so
             // playback can be checked from a terminal.
             #[cfg(debug_assertions)]
-            if std::env::var_os("DUBPLATE_DEV_PLAY").is_some() {
+            if std::env::var_os("WISP_DEV_PLAY").is_some() {
                 let ids: Vec<String> = handle
                     .state::<Arc<Manager>>()
                     .list()
@@ -487,7 +489,7 @@ pub fn run() {
             // Development aid: close the main window a few seconds after launch,
             // exactly as the red button would, to check what the app does next.
             #[cfg(debug_assertions)]
-            if std::env::var_os("DUBPLATE_DEV_CLOSE").is_some() {
+            if std::env::var_os("WISP_DEV_CLOSE").is_some() {
                 let app = handle.clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_secs(4)).await;
@@ -560,7 +562,7 @@ pub fn run() {
             quit_app,
         ])
         .build(tauri::generate_context!())
-        .expect("error while starting Dubplate")
+        .expect("error while starting Wisp")
         .run(|app, event| match event {
             RunEvent::Exit => app.state::<Arc<Manager>>().shutdown(),
             #[cfg(target_os = "macos")]

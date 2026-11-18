@@ -1,0 +1,57 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Wisp",
+        "width": 1080,
+        "height": 740,
+        "minWidth": 880,
+        "minHeight": 580,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "visible": false,
+        "transparent": true,
+        "windowEffects": {
+          "effects": [
+            "sidebar"
+          ],
+          "state": "followsWindowActiveState"
+        }
+      },
+      {
+        "label": "panel",
+        "title": "Wisp Quick Panel",
+        "width": 384,
+        "height": 520,
+        "decorations": false,
+        "transparent": true,
+        "resizable": false,
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "windowEffects": {
+          "effects": [
+            "popover"
+          ],
+          "state": "active",
+          "radius": 16
+        }
+      },
+      {
+        "label": "player",
+        "title": "Wisp Player",
+        "width": 300,
+        "height": 392,
+        "decorations": false,
+        "transparent": true,
+        "resizable": false,
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false
+      }
+    ]
+  }
+}

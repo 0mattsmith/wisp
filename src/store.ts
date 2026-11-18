@@ -23,6 +23,8 @@ function createStore<T>(initial: T) {
 const jobs = createStore<Job[]>([]);
 const settings = createStore<Settings | null>(null);
 const toasts = createStore<{ id: number; text: string; tone: "info" | "error" }[]>([]);
+/** Why the settings could not be loaded, so a page can say so instead of staying blank. */
+const loadError = createStore<string | null>(null);
 
 let started = false;
 
@@ -37,10 +39,31 @@ export async function startStore() {
   });
   await on<string>("job-removed", (id) => jobs.set(jobs.get().filter((j) => j.id !== id)));
   await on<Settings>("settings-changed", (s) => settings.set(s));
-  const [list, s] = await Promise.all([call<Job[]>("list_jobs"), call<Settings>("get_settings")]);
-  jobs.set(list);
-  settings.set(s);
+  // Loaded separately, so a problem with one never leaves the other empty.
+  call<Job[]>("list_jobs")
+    .then((list) => jobs.set(list))
+    .catch((e) => toast(`Could not load your downloads: ${e}`, "error"));
+  await loadSettings();
 }
+
+/** Load (or retry loading) the settings from the app. */
+export async function loadSettings() {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      settings.set(await call<Settings>("get_settings"));
+      loadError.set(null);
+      return;
+    } catch (e) {
+      loadError.set(String(e));
+      await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+    }
+  }
+}
+
+export const useLoadError = () => useSyncExternalStore(loadError.subscribe, loadError.get);
+/** The current settings, outside React. */
+export const currentSettings = () => settings.get();
+export const onSettings = (cb: () => void) => settings.subscribe(cb);
 
 export const useJobs = () => useSyncExternalStore(jobs.subscribe, jobs.get);
 export const useSettings = () => useSyncExternalStore(settings.subscribe, settings.get);
