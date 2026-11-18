@@ -55,6 +55,35 @@ let jobs: Job[] = [
   { ...base, id: "1", title: "Sodium Lights", artist: "Marlowe Kite", thumbnail: art("#3b82f6", "#0f172a"), duration: 248, status: "queued" },
 ];
 
+// "?sample=few" in the preview: one download in progress and a few finished ones;
+// "?sample=idle": nothing in progress.
+if (location.search.includes("sample=few") || location.search.includes("sample=idle")) {
+  const done = (id: string, title: string, artist: string, a: string, b: string): Job => ({
+    ...base,
+    id,
+    title,
+    artist,
+    thumbnail: art(a, b),
+    status: "done",
+    progress: 1,
+    output: `/Users/you/Music/Wisp/${artist} - ${title}.mp3`,
+    size: 8_000_000,
+    duration: 210,
+    matched: "iTunes",
+  });
+  jobs = [
+    done("f1", "Paper Lanterns", "Ines Vauquelin", "#f056c8", "#4c1d95"),
+    done("f2", "Glass Harbour", "Lowtide Assembly", "#0ea5e9", "#1e3a8a"),
+    done("f3", "Goldrushed", "The Royal Concept", "#fb923c", "#7c2d12"),
+    done("f4", "Saltwater Radio", "Odette & The Tides", "#eab308", "#713f12"),
+    done("f5", "Halcyon Drift", "The Quiet Arcade", "#22c55e", "#064e3b"),
+    done("f6", "Northern Line", "Marlowe Kite", "#f97316", "#7c2d12"),
+    done("f7", "Babydoll", "Jamie Miller", "#f43f5e", "#4c0519"),
+    { ...base, id: "a1", title: "Afterimage (feat. Juno Reyes)", artist: "Kestrel Park", thumbnail: art("#8b5cf6", "#1e1b4b"), duration: 233, status: "downloading", progress: 0.52, downloaded: 4_300_000, total: 7_480_000, speed: 2_950_000, eta: 2 },
+  ];
+  if (location.search.includes("sample=idle")) jobs = jobs.filter((j) => j.status === "done");
+}
+
 const settings: Settings = {
   outputDir: "/Users/you/Music/Wisp",
   format: "mp3",
@@ -163,6 +192,12 @@ export function mockCall(cmd: string, args: Record<string, unknown> = {}): unkno
       return "javascript:(()=>{location.href='wisp://add?url='+encodeURIComponent(location.href)})()";
     case "check_cookies":
       return "Helium has no YouTube cookies yet (open youtube.com in it and sign in); has SoundCloud cookies.";
+    case "fit_panel": {
+      const h = Math.min(Math.max(args.height as number, 150), 520);
+      document.body.style.height = `${h}px`;
+      document.documentElement.dataset.previewHeight = String(h);
+      return;
+    }
     case "player_pending":
       return null;
     case "ytdlp_latest":

@@ -2,16 +2,44 @@
 //! that drops down from it.
 
 use crate::jobs::Manager;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager as _, PhysicalPosition, Rect};
+use tauri::{AppHandle, LogicalSize, Manager as _, PhysicalPosition, Rect};
 
 /// When the panel last hid itself because it lost focus. Clicking the tray
 /// icon while the panel is open blurs it first; without this the same click
 /// would immediately reopen it.
 static LAST_BLUR_HIDE: AtomicU64 = AtomicU64::new(0);
+
+/// The quick panel's width, and the tallest it may grow (its original size).
+pub const PANEL_WIDTH: f64 = 384.0;
+pub const PANEL_MAX_HEIGHT: f64 = 520.0;
+const PANEL_MIN_HEIGHT: f64 = 150.0;
+
+/// Whether the panel last opened above its icon (a tray at the bottom of the
+/// screen), so that resizing keeps its bottom edge, not its top, in place.
+static OPENED_UPWARD: AtomicBool = AtomicBool::new(false);
+
+/// Make the panel as tall as its contents, never taller than it started.
+pub fn fit_panel(app: &AppHandle, height: f64) {
+    let Some(win) = app.get_webview_window("panel") else { return };
+    let height = height.clamp(PANEL_MIN_HEIGHT, PANEL_MAX_HEIGHT).round();
+    let scale = win.scale_factor().unwrap_or(1.0);
+    let before = win.outer_size().ok();
+    if before.is_some_and(|b| (b.height as f64 - height * scale).abs() < 1.0) {
+        return;
+    }
+    let position = win.outer_position().ok();
+    let _ = win.set_size(LogicalSize::new(PANEL_WIDTH, height));
+    if OPENED_UPWARD.load(Ordering::Relaxed) {
+        if let (Some(before), Some(pos)) = (before, position) {
+            let bottom = pos.y as f64 + before.height as f64;
+            let _ = win.set_position(PhysicalPosition::new(pos.x, (bottom - height * scale).round() as i32));
+        }
+    }
+}
 
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
@@ -84,7 +112,10 @@ fn toggle_panel(app: &AppHandle, rect: Rect) {
     let scale = win.scale_factor().unwrap_or(1.0);
     let icon_pos = rect.position.to_physical::<f64>(scale);
     let icon_size = rect.size.to_physical::<f64>(scale);
-    let size = win.outer_size().map(|s| (s.width as f64, s.height as f64)).unwrap_or((384.0 * scale, 520.0 * scale));
+    let size = win
+        .outer_size()
+        .map(|s| (s.width as f64, s.height as f64))
+        .unwrap_or((PANEL_WIDTH * scale, PANEL_MAX_HEIGHT * scale));
     let gap = 6.0 * scale;
 
     let mut x = icon_pos.x + icon_size.width / 2.0 - size.0 / 2.0;
@@ -93,7 +124,9 @@ fn toggle_panel(app: &AppHandle, rect: Rect) {
         let (mx, my) = (monitor.position().x as f64, monitor.position().y as f64);
         let (mw, mh) = (monitor.size().width as f64, monitor.size().height as f64);
         // Tray at the bottom of the screen (Windows, some Linux panels): open upwards.
-        if icon_pos.y > my + mh / 2.0 {
+        let upward = icon_pos.y > my + mh / 2.0;
+        OPENED_UPWARD.store(upward, Ordering::Relaxed);
+        if upward {
             y = icon_pos.y - size.1 - gap;
         }
         x = x.clamp(mx + gap, (mx + mw - size.0 - gap).max(mx + gap));

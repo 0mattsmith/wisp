@@ -1,6 +1,6 @@
-import { AppWindow, ArrowDown, ClipboardPaste, LibraryBig, ListMusic, Pause, Play, Power, Search, Settings as SettingsIcon } from "lucide-react";
-import { useMemo, useState } from "react";
-import { call, readClipboard } from "./api";
+import { AppWindow, ArrowDown, ChevronDown, ClipboardPaste, LibraryBig, ListMusic, Pause, Play, Power, Search, Settings as SettingsIcon } from "lucide-react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { call, devLog, readClipboard } from "./api";
 import { ThemeButton } from "./components/Chrome";
 import { JobRow } from "./components/JobRow";
 import { Logo, Wordmark } from "./components/Logo";
@@ -8,6 +8,14 @@ import { extractLinks } from "./format";
 import { showPlayer } from "./playerControl";
 import { addLinks, saveSettings, toast, useJobs, useSettings, useToasts } from "./store";
 import { FORMATS, isActive } from "./types";
+
+const savedShowFinished = () => {
+  try {
+    return localStorage.getItem("panel-show-finished") === "1";
+  } catch {
+    return false;
+  }
+};
 
 /** The compact window that drops down from the menu bar / tray icon. */
 export function Panel() {
@@ -17,9 +25,67 @@ export function Panel() {
   const [text, setText] = useState("");
 
   const list = useMemo(() => jobs.filter((j) => !j.cleared && j.kind !== "import").slice().reverse(), [jobs]);
-  const shown = list.slice(0, 6);
+  // In progress (and anything needing attention) up top; finished tracks tucked away below.
+  const current = list.filter((j) => j.status !== "done");
+  const finished = list.filter((j) => j.status === "done").slice(0, 60);
+  const [showFinished, setShowFinished] = useState(savedShowFinished);
   const running = list.some((j) => isActive(j) || j.status === "queued");
   const paused = list.some((j) => j.status === "paused");
+
+  // Size the window to what is showing, up to its original height; past that, the list scrolls.
+  const panelRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    const listEl = listRef.current;
+    const content = contentRef.current;
+    if (!panel || !listEl || !content) return;
+    // Timers rather than animation frames: frames are paused while the panel is
+    // hidden, and it is hidden most of the time.
+    let timer = 0;
+    let last = 0;
+    const fit = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        const style = getComputedStyle(listEl);
+        const padding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+        const chrome = panel.offsetHeight - listEl.clientHeight;
+        // Exact (fractional) height, plus a pixel spare so rounding never adds a scrollbar.
+        const needed = Math.ceil(chrome + padding + content.getBoundingClientRect().height + 1);
+        if (needed === last) return;
+        last = needed;
+        devLog(`panel wants ${needed}px`);
+        call("fit_panel", { height: needed }).catch(() => {});
+      }, 30);
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(content);
+    // Measure again whenever the panel is shown.
+    const shown = () => {
+      last = 0;
+      fit();
+    };
+    window.addEventListener("focus", shown);
+    document.addEventListener("visibilitychange", shown);
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(timer);
+      window.removeEventListener("focus", shown);
+      document.removeEventListener("visibilitychange", shown);
+    };
+  }, [showFinished]);
+
+  const toggleFinished = () => {
+    const next = !showFinished;
+    setShowFinished(next);
+    try {
+      localStorage.setItem("panel-show-finished", next ? "1" : "0");
+    } catch {
+      /* the choice just won't be remembered */
+    }
+  };
   const looksLikeSearch = text.trim() !== "" && extractLinks(text).length === 0;
 
   const submit = async (raw: string) => {
@@ -36,7 +102,7 @@ export function Panel() {
   };
 
   return (
-    <div className="panel">
+    <div className="panel" ref={panelRef}>
       <header className="panel-head">
         <Logo size={22} />
         <Wordmark />
@@ -84,20 +150,28 @@ export function Panel() {
         )}
       </div>
 
-      <div className="panel-list">
-        {shown.length === 0 ? (
-          <div className="empty small">
-            <p>No downloads yet</p>
-            <span>Paste a link to start one.</span>
-          </div>
-        ) : (
-          shown.map((job) => <JobRow key={job.id} job={job} compact />)
-        )}
-        {list.length > shown.length && (
-          <button className="link-btn more" onClick={() => call("open_main", { view: "downloads" })}>
-            Show {list.length - shown.length} more
-          </button>
-        )}
+      <div className="panel-list" ref={listRef}>
+        <div className="panel-list-inner" ref={contentRef}>
+          {current.map((job) => (
+            <JobRow key={job.id} job={job} compact />
+          ))}
+
+          {finished.length > 0 && (
+            <button
+              className={`finished-toggle${showFinished ? " open" : ""}`}
+              aria-expanded={showFinished}
+              title={showFinished ? "Hide finished downloads" : "Show finished downloads"}
+              onClick={toggleFinished}
+            >
+              <ChevronDown size={13} />
+              <span>
+                Downloaded <em>{finished.length}</em>
+              </span>
+              <ChevronDown size={13} />
+            </button>
+          )}
+          {showFinished && finished.map((job) => <JobRow key={job.id} job={job} compact />)}
+        </div>
       </div>
 
       <footer className="panel-dock">

@@ -255,6 +255,12 @@ fn open_main(app: AppHandle, view: Option<String>) {
     tray::open_view(&app, view.as_deref());
 }
 
+/// The quick panel asks to be as tall as its contents (up to its original height).
+#[tauri::command]
+fn fit_panel(app: AppHandle, height: f64) {
+    tray::fit_panel(&app, height);
+}
+
 #[tauri::command]
 fn hide_panel(app: AppHandle) {
     tray::hide_panel(&app, false);
@@ -573,6 +579,7 @@ pub fn run() {
             ytdlp_latest,
             open_main,
             hide_panel,
+            fit_panel,
             player_source,
             player_play,
             player_pending,
