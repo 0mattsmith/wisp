@@ -502,7 +502,8 @@ pub async fn check(settings: &Settings, bin_dir: &Path, scratch: &Path) -> Resul
     let (ytdlp, _) = crate::tools::resolve("yt-dlp", bin_dir).await.ok_or("yt-dlp is not installed.")?;
     std::fs::create_dir_all(scratch).map_err(|e| e.to_string())?;
     let jar = CookieFile(scratch.join(format!("cookie-check-{}.txt", std::process::id())));
-    write_private(&jar.0, "").map_err(|e| e.to_string())?;
+    // yt-dlp reads this file before filling it, and refuses one without the header.
+    write_private(&jar.0, "# Netscape HTTP Cookie File\n").map_err(|e| e.to_string())?;
     let out = crate::tools::command(&ytdlp)
         .args(&prepared.args)
         .arg("--cookies")
@@ -609,5 +610,25 @@ mod live {
         }
         let h = super::helium();
         println!("Helium preset: {} · cookies db {:?}", h.profile, super::chromium_cookie_db(std::path::Path::new(&h.profile)));
+    }
+}
+
+#[cfg(test)]
+mod live_check {
+    /// Runs the Settings "Check" button's code with Safari, using this
+    /// machine's yt-dlp: `cargo test check_with_safari -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn check_with_safari() {
+        let settings = crate::settings::Settings { cookies_browser: "safari".into(), ..Default::default() };
+        let bin = std::env::var("WISP_TEST_BIN").map(std::path::PathBuf::from).unwrap_or_default();
+        let scratch = std::env::temp_dir().join(format!("wisp-cookie-check-{}", std::process::id()));
+        let result = super::check(&settings, &bin, &scratch).await;
+        println!("Check result: {result:?}");
+        let leftovers = std::fs::read_dir(&scratch).map(|d| d.count()).unwrap_or(0);
+        println!("files left in the scratch folder: {leftovers}");
+        let _ = std::fs::remove_dir_all(&scratch);
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(leftovers, 0);
     }
 }
