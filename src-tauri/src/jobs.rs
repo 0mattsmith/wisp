@@ -439,19 +439,33 @@ fn ffmpeg_codec_args(format: &str, quality: &str, ogg: Ogg) -> Vec<String> {
         .collect()
 }
 
+/// An HTTP status in yt-dlp's wording ("HTTP Error 403: Forbidden"), never a
+/// number that merely contains those digits, such as track ID 2403144372.
+fn http_status(lower: &str, code: u16) -> bool {
+    static PATTERNS: std::sync::OnceLock<std::collections::HashMap<u16, regex::Regex>> = std::sync::OnceLock::new();
+    let patterns = PATTERNS.get_or_init(|| {
+        [403u16, 404]
+            .into_iter()
+            .map(|c| (c, regex::Regex::new(&format!(r"(http error|status( code)?|response code)\s*:?\s*{c}\b|\b{c}\s*:?\s*(forbidden|not found)")).unwrap()))
+            .collect()
+    });
+    patterns.get(&code).is_some_and(|re| re.is_match(lower))
+}
+
 fn friendly_error(line: &str) -> String {
     let msg = line.trim().trim_start_matches("ERROR:").trim();
     let lower = msg.to_lowercase();
     if cookies::blocked_by_privacy(msg) {
         cookies::PRIVACY_HELP.into()
-    } else if lower.contains("403") || lower.contains("nsig") || lower.contains("requested format is not available") {
+    } else if lower.contains("drm protected") || lower.contains("drm-protected") {
+        // Checked before anything else: this is what sends a track to `elsewhere`.
+        "This track is DRM-protected by the site, so it cannot be downloaded.".into()
+    } else if http_status(&lower, 403) || lower.contains("nsig") || lower.contains("requested format is not available") {
         // The real wording is chosen once retries are used up; see `refused_message`.
         REFUSED.into()
-    } else if lower.contains("drm") {
-        "This track is DRM-protected by the site, so it cannot be downloaded.".into()
     } else if lower.contains("sign in to confirm") || lower.contains("age") && lower.contains("restricted") {
         "This item needs a signed-in browser. Pick one under Settings → Downloads → Use cookies from.".into()
-    } else if lower.contains("private video") || lower.contains("video unavailable") || lower.contains("404") {
+    } else if lower.contains("private video") || lower.contains("video unavailable") || http_status(&lower, 404) {
         format!("Not available: {msg}")
     } else if lower.contains("unable to download") && lower.contains("webpage")
         || ["getaddrinfo", "no route to host", "failed to establish a new connection", "network is unreachable", "connection refused"]
@@ -1663,6 +1677,14 @@ mod tests {
         assert!(is_transient(&friendly_error("ERROR: [soundcloud] Unable to download JSON metadata: Read timed out. (read timeout=20.0)")));
         assert!(!is_transient(&friendly_error("ERROR: [soundcloud] 1: This video is DRM protected")));
         assert!(is_transient(&friendly_error("ERROR: [youtube] M7amWll73Qg: Unable to download API page: HTTPSConnection(host='www.youtube.com', port=443): Failed to establish a new connection: [Errno 65] No route to host")));
+        // A track whose ID happens to contain "403" (from a friend's Mac) is
+        // still recognised as DRM-protected, so the YouTube fallback runs.
+        let drm = friendly_error("ERROR: [soundcloud] 2403144372: This video is DRM protected");
+        assert!(drm.contains("DRM"), "{drm}");
+        assert!(!is_transient(&drm));
+        // And a number with 403 or 404 in it is not an HTTP error.
+        assert_eq!(friendly_error("ERROR: [soundcloud] 1404031: Something else went wrong"), "[soundcloud] 1404031: Something else went wrong");
+        assert_eq!(friendly_error("ERROR: unable to download video data: HTTP Error 404: Not Found"), "Not available: unable to download video data: HTTP Error 404: Not Found");
         // A refusal is retried, and only explained once retries run out.
         assert!(is_transient(&friendly_error("ERROR: unable to download video data: HTTP Error 403: Forbidden")));
         assert_eq!(retry_note(REFUSED, "youtube", 1), "YouTube refused the download, trying again (2 of 3)…");
