@@ -64,9 +64,20 @@ if [ -n "$bump" ]; then
   git rev-parse -q --verify "refs/tags/$tag" >/dev/null && fail "$tag already exists."
   # A release without the signing key fails ten minutes into the build; catch it here.
   if ! $dry_run && command -v gh >/dev/null 2>&1; then
-    gh secret list 2>/dev/null | grep -q '^TAURI_SIGNING_PRIVATE_KEY' ||
+    # A failed lookup (a network blip) is retried; only a successful lookup
+    # without the secret stops the release.
+    secrets=""
+    for attempt in 1 2 3; do
+      if secrets=$(gh secret list 2>/dev/null); then break; fi
+      secrets=""
+      sleep 3
+    done
+    if [ -z "$secrets" ]; then
+      echo "push: could not check GitHub's secrets (network?); carrying on." >&2
+    elif ! printf '%s\n' "$secrets" | grep -q '^TAURI_SIGNING_PRIVATE_KEY'; then
       fail "the repo has no TAURI_SIGNING_PRIVATE_KEY secret, so the release could not be signed. Add it with:
        gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/dubplate-updater.key"
+    fi
   fi
 fi
 
